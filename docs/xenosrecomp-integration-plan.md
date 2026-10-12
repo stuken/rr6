@@ -149,7 +149,16 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
 2. **Resources:**
    - verify the XDK 2135 VB/IB/texture/surface headers (VB: 20 bytes, refcount in Common's low byte; texture: 40; surface: 64);
    - then port reblue's `hooks/resource.cpp` against them: create, lock and unlock, `AddRef`/`Release`/`Destroy`, `GetDesc`/`GetLevelDesc`, `GetSurfaceLevel`, and the cube and volume variants.
-3. **`Resolve`:** depth resolves are not modeled yet, nor partial resolves that need a format conversion or scaling.
+3. **Renderer gaps:** each unmodeled path now warns on its first hits (`RR6_WARN_FIRST`, `core/logging.h`):
+   - `Clear` with rects (the whole target clears);
+   - depth resolves (`D3DRESOLVE_DEPTHSTENCIL`);
+   - resolve clears limited to a source rect (the whole target clears);
+   - MRT binds (`SetRenderTarget` slot 1-3);
+   - line lists and strips (one host pixel wide at any scale);
+   - partial resolves that need a format conversion (the existing fallback warning).
+
+   Across boot, menus, World Xplorer and two Harborline races, and over the 158 earlier runs, none of these fires. They stay unmodeled until a warning shows RR6 reaching one.
+   - **Points at a resolution scale:** RR6's only point draw is the sun visibility count. After the probe resolve, 64 additive points (`vte=400`, window coordinates) each sample one probe texel (alpha 1/64 per probe pixel) and all land on one pixel, which the second resolve carries to the glow. The glow pixel shader reads that texel bilinearly at a constant UV (`IncidentRayTexUV`). Host points are one host pixel, so at 2x the sum covered one host texel of the 2x2 block and the glow read about a quarter of it (alpha 67 instead of 255). Point lists now draw once per host pixel of the block at scale s, each pass moved onto that pixel's centre through a host-pixel nudge on the NDC offset (`SetHostPixelNudge`, offsets k + 0.5 - s/2). Checked at 2x: the block holds the full sum and the glow reads 255, as at 1x. Point sprite sizes are still not modeled; RR6's points are one pixel.
 4. **Resolution scaling:** done, host-side as xenia does it. The guest still sees 1280x720.
    - `rr6_resolution_scale` (integer, 1-4) multiplies everything the host renders into:
      - every render surface (`HostSurface`);

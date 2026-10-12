@@ -99,6 +99,11 @@ ConstantAllocation UploadPixelShaderConstants(u32 device_guest);
 // and the caller can skip the upload + root rebind.
 ConstantAllocation UploadSharedConstants(u32 device_guest);
 
+// Moves every vertex of the following draws by (x, y) host pixels (+x right,
+// +y down) through the NDC offset. Point draws use it to cover the whole host
+// block of a guest pixel at a resolution scale. Reset to (0, 0) after.
+void SetHostPixelNudge(float x, float y);
+
 // Root bindings do not survive begin(), so this drops the 'shared CB still
 // bound' reuse gate. Call on every command list reset.
 void InvalidateSharedBinding();

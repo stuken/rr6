@@ -33,6 +33,7 @@
 #include "gpu/device.h"
 #include "gpu/guest_buffers.h"
 #include "gpu/native_texture_mirror.h"
+#include "gpu/output.h"
 #include "gpu/resources.h"
 
 REXCVAR_DEFINE_INT32(rr6_trace_frame, 0, kCvarGroup,
@@ -92,11 +93,16 @@ struct DrawArgs {
 
 plume::RenderPrimitiveTopology MapPrimitiveType(u32 prim) {
   switch (static_cast<xe::PrimitiveType>(prim)) {
+  // Points are one guest pixel: no point sprite sizes, and DispatchDraw covers
+  // the host block at a resolution scale. Lines are one host pixel wide,
+  // unscaled; RR6 draws none.
   case xe::PrimitiveType::kPointList:
     return plume::RenderPrimitiveTopology::POINT_LIST;
   case xe::PrimitiveType::kLineList:
+    RR6_WARN_FIRST(1, "MapPrimitiveType: line list drawn one pixel wide");
     return plume::RenderPrimitiveTopology::LINE_LIST;
   case xe::PrimitiveType::kLineStrip:
+    RR6_WARN_FIRST(1, "MapPrimitiveType: line strip drawn one pixel wide");
     return plume::RenderPrimitiveTopology::LINE_STRIP;
   case xe::PrimitiveType::kTriangleList:
     return plume::RenderPrimitiveTopology::TRIANGLE_LIST;
@@ -375,6 +381,27 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const DrawArgs &args) {
     }
     cmd_list->drawIndexedInstanced(args.vertexOrIndexCount, 1, args.startIndex,
                                    args.baseVertexIndex, 0);
+  } else if (static_cast<xe::PrimitiveType>(primitive_type) ==
+                 xe::PrimitiveType::kPointList &&
+             rr6::gpu::Output::ResolutionScale() > 1) {
+    // A one-pixel guest point covers scale x scale host pixels. Host points
+    // are one pixel, so draw the list once per host pixel of the block, each
+    // pass moved onto that pixel's centre. RR6's only point draw is the sun
+    // visibility count: 64 additive points summing the probe into one pixel
+    // that the glow reads back bilinearly, so every host pixel of the block
+    // needs the full sum.
+    const u32 scale = rr6::gpu::Output::ResolutionScale();
+    const float centre = 0.5f * float(scale) - 0.5f;
+    for (u32 y = 0; y < scale; ++y) {
+      for (u32 x = 0; x < scale; ++x) {
+        rr6::gpu::SetHostPixelNudge(float(x) - centre, float(y) - centre);
+        if (!Video::FlushRenderStateLocked(device_guest))
+          break;
+        cmd_list->drawInstanced(args.vertexOrIndexCount, 1, args.startVertex,
+                                0);
+      }
+    }
+    rr6::gpu::SetHostPixelNudge(0.0f, 0.0f);
   } else {
     cmd_list->drawInstanced(args.vertexOrIndexCount, 1, args.startVertex, 0);
   }
@@ -603,6 +630,14 @@ REX_HOOK_RAW(D3DDevice_Resolve) {
              flags, dest, src ? src->width : 0, src ? src->height : 0, rect,
              point, surface_va, words, u32(ctx.lr));
   }
+  if (dest && (flags & rr6::gpu::kResolveDepthStencil))
+    RR6_WARN_FIRST(4, "Resolve: depth resolve into 0x{:08X} not modeled "
+                   "(flags=0x{:X})", dest, flags);
+  // The guest clears only the resolved rect; the host clears the whole target.
+  if (ctx.r5.u32 &&
+      (flags & (kResolveClearRenderTarget | kResolveClearDepthStencil)))
+    RR6_WARN_FIRST(4, "Resolve: clear limited to a source rect clears the "
+                   "whole target (flags=0x{:X})", flags);
   if (dest && !(flags & rr6::gpu::kResolveDepthStencil) && src &&
       src->texture) {
     if (auto *dst = rr6::gpu::GetOrCreateResolveTarget(dest, src->format)) {

@@ -80,6 +80,8 @@ struct UploadState {
   SharedConstants lastUploaded{};
   SamplerSlotCache samplerSlots[16];
   float shadowPcfScale = 1.0f;
+  float nudgeX = 0.0f; // SetHostPixelNudge, in host pixels
+  float nudgeY = 0.0f;
   bool sharedBound = false;
   bool ready = false;
 };
@@ -297,6 +299,12 @@ ConstantAllocation UploadPixelShaderConstants(u32 device_guest) {
   return alloc;
 }
 
+void SetHostPixelNudge(float x, float y) {
+  auto &s = upload_state();
+  s.nudgeX = x;
+  s.nudgeY = y;
+}
+
 ConstantAllocation UploadSharedConstants(u32 device_guest) {
   RR6_CPU_ZONE("UploadSharedConstants");
   auto &s = upload_state();
@@ -442,6 +450,12 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
     s.shared.ndcOffsetX = x_window ? -1.0f - 2.0f * vs.viewport.x / vw : 0.0f;
     s.shared.ndcScaleY = y_window ? -2.0f / vh : 1.0f;
     s.shared.ndcOffsetY = y_window ? 1.0f + 2.0f * vs.viewport.y / vh : 0.0f;
+    // The viewport is in guest pixels; a host pixel is 1/scale of one.
+    const float scale = float(Output::ResolutionScale());
+    if (s.nudgeX != 0.0f && vw > 0.0f)
+      s.shared.ndcOffsetX += 2.0f * s.nudgeX / (scale * vw);
+    if (s.nudgeY != 0.0f && vh > 0.0f)
+      s.shared.ndcOffsetY -= 2.0f * s.nudgeY / (scale * vh);
   }
 
   // At a resolution scale above 1, an edge the guest placed less than half a

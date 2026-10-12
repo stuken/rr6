@@ -173,8 +173,12 @@ REX_HOOK_RAW(D3DDevice_SetRenderTarget) {
   const u32 surface_va = ctx.r5.u32;
   __imp__D3DDevice_SetRenderTarget(ctx, base);
   // MRT is not modeled, as in reblue.
-  if (index != 0)
+  if (index != 0) {
+    if (surface_va)
+      RR6_WARN_FIRST(4, "SetRenderTarget: MRT slot {} (0x{:08X}) not modeled",
+                     index, surface_va);
     return;
+  }
   g_bound_render_target.store(surface_va, std::memory_order_relaxed);
   GuestTexture *surface = HostSurface(ctx, base, surface_va);
   if (rr6::gpu::TraceFrameActive()) {

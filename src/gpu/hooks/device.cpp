@@ -148,11 +148,17 @@ u32 Direct3D_CreateDevice_hook(u32 /*adapter*/, u32 /*device_type*/,
 // The Xenon ABI reserves a GPR slot for every float argument, so Z in f1 also
 // consumes r8 while SDK marshaling numbers integer args without skipping it.
 // The placeholder absorbs r8 so Stencil reads r9 (0x82253D50 passes r9 on).
-u32 D3DDevice_Clear_hook(u32 /*device*/, u32 /*count*/, u32 /*rects*/,
-                         u32 flags, u32 color, f64 z, u32 /*z_gpr_slot*/,
-                         u32 stencil) {
+u32 D3DDevice_Clear_hook(u32 /*device*/, u32 count, u32 rects, u32 flags,
+                         u32 color, f64 z, u32 /*z_gpr_slot*/, u32 stencil) {
   if (rr6::gpu::TraceFrameActive())
     RR6_INFO("[trace] Clear flags=0x{:X} color=0x{:08X} z={}", flags, color, z);
+  // D3DRECT {x1,y1,x2,y2}. Rects aren't modeled: the whole target clears.
+  if (count && rects) {
+    if (const auto *r = rr6::mem::at<const be_i32>(rects))
+      RR6_WARN_FIRST(4, "Clear: {} rect(s) ignored, first {},{}-{},{} "
+                     "flags=0x{:X}", count, i32(r[0]), i32(r[1]), i32(r[2]),
+                     i32(r[3]), flags);
+  }
   rr6::gpu::Video::Clear(flags, color, static_cast<float>(z), stencil);
   return 0;
 }

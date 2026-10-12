@@ -169,7 +169,7 @@ std::unique_ptr<plume::RenderPipeline> Build(const PipelineState &state) {
   // The guest polygon offset (RR6's car shadow quads) varies per draw, so
   // where the device allows it the bias comes from the command list and the
   // baked fields above stay zero (FlushRenderStateLocked).
-  desc.dynamicDepthBiasEnabled = device->getCapabilities().dynamicDepthBias;
+  desc.dynamicDepthBiasEnabled = gpu::state().dynamic_depth_bias;
 
   desc.stencilEnabled = state.stencilEnable;
   desc.stencilReadMask = state.stencilMask;

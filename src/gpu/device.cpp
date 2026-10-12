@@ -50,6 +50,10 @@
 #include "gpu/surface_registry.h"
 #include "platform/platform.h"
 
+REXCVAR_DEFINE_BOOL(rr6_baked_depth_bias, false, kCvarGroup,
+                    "Bake the polygon offset into pipelines even where the "
+                    "device takes it per draw (tests the older-runtime path)");
+
 namespace plume {
 #if defined(RR6_D3D12)
 extern std::unique_ptr<RenderInterface> CreateD3D12Interface();
@@ -310,7 +314,8 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
     // RGBA16F, never R11G11B10: RR6's sun visibility probe writes the scene's
     // alpha channel and reads it back through a resolve.
     s.scene_color_format = plume::RenderFormat::R16G16B16A16_FLOAT;
-    s.dynamic_depth_bias = s.device->getCapabilities().dynamicDepthBias;
+    s.dynamic_depth_bias = s.device->getCapabilities().dynamicDepthBias &&
+                           !REXCVAR_GET(rr6_baked_depth_bias);
 
     s.queue =
         s.device->createCommandQueue(plume::RenderCommandListType::DIRECT);

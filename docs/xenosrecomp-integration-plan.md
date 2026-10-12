@@ -238,14 +238,19 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
    - **Still to check with the display on:** the refresh-per-frame histogram, and the eye test.
 4. **Pipeline precache:**
    - **Cold cost:** a cold pipeline compile takes 10–22 ms, and two races need 110. Without the driver cache, those added 95–360 ms frames at race start and a 169 ms one mid-race.
-   - **Compiled-in list:** `gpu/pipeline/cache/pipeline_state_cache.h` holds the 110 pipelines. Each entry carries the shaders' and the declaration's content hashes in its pointer fields, and the device depth format is folded to `D32_FLOAT_S8_UINT`.
+   - **Compiled-in list:** `gpu/pipeline/cache/pipeline_state_cache.h` holds 151 pipelines. Each entry carries the shaders' and the declaration's content hashes in its pointer fields, the device depth format is folded to `D32_FLOAT_S8_UINT`, and the depth bias is dropped (see below).
    - **Replay:** `ReplayBootCache` resolves each entry once its shaders and declaration exist, then compiles it on up to 4 background threads. All 110 are done 467 ms after boot, because every shader and declaration exists by then.
    - **Sharing:** identical shaders (244 containers, 176 distinct) and identical declarations now share one host object. Pipelines key on those pointers.
    - **Checked cold:**
      - no draw compiles a pipeline;
      - the cold-only hitches are gone, and the long frames match a warm run's;
      - frames are unchanged.
-   - **Extending the list:** run with `rr6_pso_capture=true`. That writes the compiled-in list, plus every pipeline a draw still compiled, to `<cache>/pipeline_state_cache.h`. Copy it over the source one. `rr6_devmode` logs each such pipeline. Coverage so far is boot, menus, World Xplorer, car select and two Harborline races, so other courses, the attract demo and the movies may add entries.
+   - **Extending the list:** run with `rr6_pso_capture=true`. That writes the compiled-in list, plus every pipeline a draw still compiled, to `<cache>/pipeline_state_cache.h`. Copy it over the source one. `rr6_devmode` logs each such pipeline.
+   - **Depth bias was most of the "misses":** the first capture runs found 150 new pipelines on Lakeshore Drive and 700 over a few attract demo laps, but 648 of the 700 were one shadow-quad draw. Its slope-scaled depth bias tracks the camera (11 to 270), and D3D12 baked it into the pipeline, so each new value compiled a pipeline on the drawing thread: a stutter source no list could cover.
+     - D3D12 now uses dynamic depth bias (`RSSetDepthBias`) where the runtime has it. plume only probed for it with the Agility SDK; it now also does with Windows SDK headers that declare `ID3D12GraphicsCommandList9` (10.0.26100+), and the runtime check (`OPTIONS16.DynamicDepthBiasSupported`) still decides. Windows 11 24H2 and later have it in-box; this machine reports "depth bias dynamic".
+     - Where it is still baked (older Windows), the slope bias rounds up to the next 2^(k/8) (steps of 9%) instead of 0.25 steps, so the shadow quad needs a few dozen pipelines rather than about a thousand.
+     - The list holds every entry with the bias zeroed. Stripping it took the first 260 captured entries down to 74.
+   - **Coverage (151 entries):** boot, menus, World Xplorer, car select, the intro movie, three idle attract demo cycles (a city course, Highland Cliffs and others), and Single Races on Lakeshore Drive, Island Circle, Highland Cliffs and Highland Cliffs R, Seacrest District and R, Airport Lap and R, Downtown Rave City and R, and Southbay Docks R, plus the two Harborline races. The last three courses added nothing, and the last idle run 5 (variants of a general-purpose sprite shader). D3D12 and Vulkan both compile all 151 at boot and none during the Harborline race. The race frames are unchanged.
 5. **Vulkan backend (Windows):**
    - **Build:** with `RR6_NATIVE_GPU=ON`, `RR6_D3D12` (on by default on Windows) builds `rr6.exe` with D3D12, and `RR6_VULKAN_EXE` (on by default) adds `rr6_vk.exe`. As in reblue, both exes link the one `rr6_recomp` object library, so the recompiled guest code compiles once. The host HLSL is compiled per backend (`-spirv -fvk-use-dx-layout`, `-fvk-invert-y` for vertex shaders). The DXC shader linker and `rr6_prelink` are D3D12 only, and the Vulkan exe adds smol-v for the SPIR-V cache. `RR6_D3D12=OFF` makes `rr6.exe` itself Vulkan.
    - **Fixes it needed:**
@@ -255,7 +260,7 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
      - **plume:** `VulkanCommandList::copyTextureRegion` gained the texture-to-buffer case (the frame dumps' readback), which crashed on a null destination texture before.
    - **Checked:** two races at 1x under the Khronos validation layer (built locally with vcpkg, not shipped) with no messages, and one race at 3x. Frames 8000 and 16500 match the D3D12 references to within run-to-run variance (mean 0.8 to 2 of 255). D3D12 output is unchanged.
    - **Pacing:** Vulkan has no swap interval in plume, so it uses the timer pacer. In race windows that gave p99 16.67 ms and no frame over 17.5 ms.
-6. **Open:** Linux and macOS (the Vulkan exe is the base for both), extending the PSO capture coverage.
+6. **Open:** Linux and macOS (the Vulkan exe is the base for both). Online Battle, Global Time Attack and replays were not captured; a draw that still compiles is logged under `rr6_devmode`.
 
 ### Phase 3 findings
 

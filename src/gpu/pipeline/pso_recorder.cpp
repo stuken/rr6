@@ -76,6 +76,12 @@ PipelineState ToPortable(const PipelineState &live) {
       live.vertexDeclaration ? live.vertexDeclaration->hash : 0);
   if (plume::RenderFormatIsStencil(p.depthStencilFormat))
     p.depthStencilFormat = plume::RenderFormat::D32_FLOAT_S8_UINT;
+  // The shadow quads' slope bias tracks the camera every frame. With dynamic
+  // depth bias (Vulkan, D3D12 on Windows 11 24H2+) it is not part of the
+  // pipeline at all; where it is baked, the values never repeat reliably
+  // enough to be worth listing. Either way the list holds the bias-free entry.
+  p.depthBias = 0;
+  p.slopeScaledDepthBias = 0.0f;
   return p;
 }
 

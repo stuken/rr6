@@ -119,13 +119,15 @@ void ReadDeviceRenderState(VideoState &s, u32 device_guest) {
                          slope_bias);
   } else {
     // Baked into the PSO: the shadow quads' slope bias tracks the camera
-    // every frame, so round it up (more offset is the safe direction) to keep
-    // the pipeline count bounded.
+    // every frame (11 to 270 over an attract demo lap), so round it up to the
+    // next 2^(k/8), steps of 9% (more offset is the safe direction). 0.25
+    // steps still made about a thousand pipelines over a few laps.
+    float slope = 0.0f;
+    if (const float mag = std::abs(slope_bias); mag > 0.0f)
+      slope = std::copysign(std::exp2(std::ceil(std::log2(mag) * 8.0f) / 8.0f),
+                            slope_bias);
     Video::SetDirtyValue(dirty, ps.depthBias, static_cast<i32>(depth_bias));
-    Video::SetDirtyValue(dirty, ps.slopeScaledDepthBias,
-                         std::copysign(std::ceil(std::abs(slope_bias) * 4.0f) *
-                                           0.25f,
-                                       slope_bias));
+    Video::SetDirtyValue(dirty, ps.slopeScaledDepthBias, slope);
   }
 
   // The guest's own D3D keeps the viewport at +0x3208: its SetRenderTarget

@@ -13,7 +13,7 @@ Reference implementation: `D:\reblue` (v1.3.1). SDK: rexglue 0.10.0 (both projec
 | 2. Build integration | **Done.** `rr6_shader_cache` (OBJECT library) builds from `default.xex`. Nothing links it yet. The `src/CMakeLists.txt` and `rr6_common` restructure is deferred to Phase 4, where the sources first appear. |
 | 3. D3D identification | **Done for the hook set.** `config/d3d.toml` names 75 functions and is included from `rr6_manifest.toml`. Scratch codegen applies all 75 with no warnings. The device layout is in that file's header. `scripts/re/funcdb.py` queries the codegen output. Render-state names are open (see below). |
 | 4. Native renderer | **Milestone 4 done.** With `-DRR6_NATIVE_GPU=ON` the game plays from boot through the menus into a race, and the race scene, car select and course intro match the xenos plugin (verified against real hardware). The car's dynamic environment reflections are still missing. `OFF` still builds and runs the xenos plugin. |
-| 5. Hardening and performance | **In progress.** Perf counters, display-locked frame pacing and the pipeline precache are done (see Phase 5 below). Vulkan and the other platforms are open. |
+| 5. Hardening and performance | **In progress.** Perf counters, display-locked frame pacing, the pipeline precache and the Windows Vulkan build (`rr6_vk.exe`) are done (see Phase 5 below). Linux and macOS are open. |
 
 ### Phase 4, milestone 1 (what exists)
 
@@ -246,7 +246,16 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
      - the cold-only hitches are gone, and the long frames match a warm run's;
      - frames are unchanged.
    - **Extending the list:** run with `rr6_pso_capture=true`. That writes the compiled-in list, plus every pipeline a draw still compiled, to `<cache>/pipeline_state_cache.h`. Copy it over the source one. `rr6_devmode` logs each such pipeline. Coverage so far is boot, menus, World Xplorer, car select and two Harborline races, so other courses, the attract demo and the movies may add entries.
-5. **Open:** the Vulkan backend (the precache already passes the spec constant per pipeline), Linux and macOS.
+5. **Vulkan backend (Windows):**
+   - **Build:** with `RR6_NATIVE_GPU=ON`, `RR6_D3D12` (on by default on Windows) builds `rr6.exe` with D3D12, and `RR6_VULKAN_EXE` (on by default) adds `rr6_vk.exe`. As in reblue, both exes link the one `rr6_recomp` object library, so the recompiled guest code compiles once. The host HLSL is compiled per backend (`-spirv -fvk-use-dx-layout`, `-fvk-invert-y` for vertex shaders). The DXC shader linker and `rr6_prelink` are D3D12 only, and the Vulkan exe adds smol-v for the SPIR-V cache. `RR6_D3D12=OFF` makes `rr6.exe` itself Vulkan.
+   - **Fixes it needed:**
+     - **Vertex input locations:** host code included `shader_common.h` without the recompiler's `REBLUE_RECOMP`/`RR6_RECOMP`, so it built its `[[vk::location]]` table from Blue Dragon's semantics while the shaders used RR6's. Every attribute after `POSITION` landed at the wrong location (flat-colour 2D, dark 3D). D3D12 matches by semantic name, so it was unaffected. The native targets now get both defines, and a `static_assert` pins the RR6 table.
+     - **PointSize:** Vulkan leaves a point's size undefined unless the vertex shader writes it. XenosRecomp now writes `PointSize = 1` in every SPIR-V vertex shader (a `PointSizeOutput` struct in `shader_common.h`, since DXC takes the builtin on a struct member only). The sun count's per-host-pixel point passes rely on one-pixel points.
+     - **Framebuffer lifetime:** a texture's cached framebuffers were destroyed as soon as the texture was. A Vulkan framebuffer and its render pass destroyed under a recording command buffer invalidate it. They now wait in `framebuffer_graveyard` until the slot's fence, like textures and buffers.
+     - **plume:** `VulkanCommandList::copyTextureRegion` gained the texture-to-buffer case (the frame dumps' readback), which crashed on a null destination texture before.
+   - **Checked:** two races at 1x under the Khronos validation layer (built locally with vcpkg, not shipped) with no messages, and one race at 3x. Frames 8000 and 16500 match the D3D12 references to within run-to-run variance (mean 0.8 to 2 of 255). D3D12 output is unchanged.
+   - **Pacing:** Vulkan has no swap interval in plume, so it uses the timer pacer. In race windows that gave p99 16.67 ms and no frame over 17.5 ms.
+6. **Open:** Linux and macOS (the Vulkan exe is the base for both), extending the PSO capture coverage.
 
 ### Phase 3 findings
 

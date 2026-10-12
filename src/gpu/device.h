@@ -480,6 +480,12 @@ struct VideoState {
   std::vector<std::unique_ptr<plume::RenderBuffer>>
       buffer_graveyard[kNumFrames];
 
+  // Framebuffers dropped from a texture's cache while this slot recorded. A
+  // Vulkan framebuffer (and its render pass) destroyed under a recording or
+  // pending command buffer invalidates it, so they wait like textures do.
+  std::vector<std::unique_ptr<plume::RenderFramebuffer>>
+      framebuffer_graveyard[kNumFrames];
+
   std::vector<std::unique_ptr<plume::RenderTexture>> texture_free_backlog;
 
   // The null rewrite must not happen at release: descriptors are read at GPU

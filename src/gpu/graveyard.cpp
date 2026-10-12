@@ -159,15 +159,23 @@ void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead) {
   if (dead->framebufferAttached) {
     RR6_CPU_ZONE("FbCacheInvalidate");
     const plume::RenderTexture *deadTex = dead->texture;
+    auto &graveyard = s.framebuffer_graveyard[Video::RetireSlot("framebuffer")];
     for (auto it = s.framebuffer_owners.begin();
          it != s.framebuffer_owners.end();) {
       GuestTexture *owner = *it;
       if (owner == dead) {
+        for (auto &[key, fb] : owner->framebuffers)
+          graveyard.push_back(std::move(fb));
         owner->framebuffers.clear();
         it = s.framebuffer_owners.erase(it);
       } else {
-        if (deadTex)
-          owner->framebuffers.erase(deadTex);
+        if (deadTex) {
+          if (auto fb = owner->framebuffers.find(deadTex);
+              fb != owner->framebuffers.end()) {
+            graveyard.push_back(std::move(fb->second));
+            owner->framebuffers.erase(fb);
+          }
+        }
         if (owner->framebuffers.empty())
           it = s.framebuffer_owners.erase(it);
         else

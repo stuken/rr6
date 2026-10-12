@@ -56,10 +56,11 @@ constexpr auto resolve_location = [](D3DDeclUsage usage, u32 usage_index) {
   return kNoLocation;
 };
 
-// bd_2d_blit_vs.hlsl writes these three [[vk::location]] values by hand.
-static_assert(resolve_location(D3DDeclUsage::kPosition, 0) == 0 &&
-              resolve_location(D3DDeclUsage::kTexCoord, 0) == 7 &&
-              resolve_location(D3DDeclUsage::kColor, 0) == 10);
+// The recompiler is built with RR6_RECOMP, and so is this file (see
+// cmake/native_gpu.cmake). Without it the table is Blue Dragon's, and every
+// Vulkan vertex attribute after Position lands at the wrong location.
+static_assert(resolve_location(D3DDeclUsage::kTexCoord, 0) == 5 &&
+              resolve_location(D3DDeclUsage::kColor, 0) == 8);
 } // namespace
 
 GuestVertexDeclaration *CreateVertexDeclaration(GuestVertexElement *elements) {
@@ -251,13 +252,10 @@ GuestVertexDeclaration *CreateVertexDeclaration(GuestVertexElement *elements) {
     plume::RenderFormat format = plume::RenderFormat::R32_FLOAT;
     switch (usage) {
     case D3DDeclUsage::kPosition:
-      // POSITION/1..4 are BD's 'constrain' hardware vertex blend streams, used
-      // by the _vs_env shaders behind the g_bConstrain0/1/2 bool constants. A
-      // static mesh's decl omits them, so they read the slot-15 null buffer.
-      // float4 makes every lane read 0, including the .w blend weight, and a
-      // zero weight disables each contribution through the shader's
-      // 'r*.w != 0.0' gate, the right no-blend result. R32_FLOAT would leave
-      // .w defaulted to 1.0.
+      // float4 makes every lane of a missing position read 0. R32_FLOAT would
+      // leave .w defaulted to 1.0. (Blue Dragon's table also listed its
+      // POSITION/1..4 blend streams here, where a zero .w weight disabled
+      // each contribution; RR6 declares POSITION/0 only.)
       format = plume::RenderFormat::R32G32B32A32_FLOAT;
       break;
     case D3DDeclUsage::kNormal:

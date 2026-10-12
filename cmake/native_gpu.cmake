@@ -2,9 +2,44 @@
 # layer, fed by the XenosRecomp shader cache, in place of the SDK's emulated
 # GPU. The guest's D3D library is replaced by REX_HOOKs in src/gpu/hooks.
 #
-# Expects the rr6 target, RR6_GEN_DIR, RR6_SHADER_COMMON_H and the
-# rr6_shader_cache library to exist already.
+# Expects the rr6 target (already through rexglue_setup_target), RR6_SOURCES,
+# RR6_ICON_RC, RR6_GEN_DIR, RR6_SHADER_COMMON_H and the rr6_shader_cache library
+# to exist already.
 enable_language(C)
+
+cmake_dependent_option(RR6_D3D12
+    "Build rr6 with the D3D12 backend (OFF selects Vulkan)" ON "WIN32" OFF)
+cmake_dependent_option(RR6_VULKAN_EXE
+    "Build rr6_vk, the Vulkan backend, alongside the D3D12 rr6" ON
+    "WIN32;RR6_D3D12" OFF)
+
+set(RR6_D3D12_TARGETS "")
+set(RR6_VULKAN_TARGETS "")
+if(RR6_D3D12)
+    list(APPEND RR6_D3D12_TARGETS rr6)
+else()
+    list(APPEND RR6_VULKAN_TARGETS rr6)
+endif()
+
+if(RR6_VULKAN_EXE)
+    add_executable(rr6_vk WIN32 ${RR6_SOURCES} ${RR6_ICON_RC})
+    target_sources(rr6_vk PRIVATE src/platform/input_script.cpp)
+    # The recompiled guest code never reads the backend, so both exes link the
+    # rr6_recomp objects rexglue_setup_target made for rr6 instead of compiling
+    # them a second time. The macro only adds them while this list is set.
+    set(rr6_recomp_sources "${REXGLUE_ENTRYPOINT_GENERATED_SOURCES}")
+    set(REXGLUE_ENTRYPOINT_GENERATED_SOURCES "")
+    rexglue_setup_target(rr6_vk)
+    set(REXGLUE_ENTRYPOINT_GENERATED_SOURCES "${rr6_recomp_sources}")
+    if(TARGET rr6_recomp)
+        target_link_libraries(rr6_vk PRIVATE rr6_recomp)
+    endif()
+    # The SDK stages the same runtime DLLs next to every exe it configures, so
+    # serialize the links to keep those POST_BUILD copies off each other.
+    add_dependencies(rr6_vk rr6)
+    list(APPEND RR6_VULKAN_TARGETS rr6_vk)
+endif()
+set(RR6_NATIVE_TARGETS ${RR6_D3D12_TARGETS} ${RR6_VULKAN_TARGETS})
 
 add_subdirectory(thirdparty/plume EXCLUDE_FROM_ALL)
 include(cmake/shaders.cmake)
@@ -18,60 +53,97 @@ file(GLOB_RECURSE rr6_native_sources CONFIGURE_DEPENDS
 list(REMOVE_ITEM rr6_native_sources
     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/input_script.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/xenos_resolve_dump.cpp")
-target_sources(rr6 PRIVATE
-    ${rr6_native_sources}
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/miniz/miniz.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/zstd/zstddeclib.c")
+# The runtime DXC shader linker has no Vulkan counterpart: SPIR-V takes the
+# spec constants as Vulkan specialization constants instead.
+set(rr6_d3d12_sources
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/shaders/dxc_link.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/shaders/shader_linker.cpp")
+list(REMOVE_ITEM rr6_native_sources ${rr6_d3d12_sources})
 set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/miniz/miniz.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/zstd/zstddeclib.c"
     PROPERTIES COMPILE_OPTIONS "-w")
 
 foreach(shader IN ITEMS copy_vs imgui_vs)
-    rr6_host_shader(rr6 ${shader} vs_6_0)
+    rr6_host_shader(${shader} vs_6_0)
 endforeach()
 foreach(shader IN ITEMS
         copy_color_ps copy_depth_ps gamma_correction_ps pfx_occlusion_count_ps
         imgui_ps
         resolve_msaa_color_2x resolve_msaa_color_4x resolve_msaa_color_8x
         resolve_msaa_depth_2x resolve_msaa_depth_4x resolve_msaa_depth_8x)
-    rr6_host_shader(rr6 ${shader} ps_6_0)
+    rr6_host_shader(${shader} ps_6_0)
 endforeach()
 
-# rr6_prelink DXC-links every specConstantsMask subset of the shader cache at
-# build time, so the runtime never pays a DXC link for a shipped shader.
-add_executable(rr6_prelink
-    tools/prelink_shader_cache.cpp
-    src/gpu/shaders/dxc_link.cpp
-    "${RR6_GEN_DIR}/shader_cache.cpp"
-    thirdparty/miniz/miniz.cpp
-    thirdparty/zstd/zstddeclib.c)
-target_include_directories(rr6_prelink PRIVATE
-    src thirdparty/miniz thirdparty/zstd)
-target_link_libraries(rr6_prelink PRIVATE Microsoft::DirectXShaderCompiler)
-rr6_stage_dxc(rr6_prelink)
+foreach(target IN LISTS RR6_NATIVE_TARGETS)
+    target_sources(${target} PRIVATE
+        ${rr6_native_sources}
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/miniz/miniz.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/zstd/zstddeclib.c")
+    # The recompiler's defines (thirdparty/CMakeLists.txt), so host code reads
+    # the same shader_common.h tables (vertex input locations) as the shaders.
+    target_compile_definitions(${target} PRIVATE
+        RR6_NATIVE_GPU REBLUE_RECOMP RR6_RECOMP)
+    target_include_directories(${target} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${RR6_GEN_DIR}"
+        "${RR6_SHADER_COMMON_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/miniz"
+        "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/zstd")
+    target_link_libraries(${target} PRIVATE
+        plume
+        rr6_shader_cache
+        rex::xxhash
+        rex::o1heap)
+endforeach()
 
-add_custom_command(
-    OUTPUT "${RR6_GEN_DIR}/linked_shader_cache.cpp"
-    COMMAND rr6_prelink "${RR6_GEN_DIR}/linked_shader_cache.cpp"
-    DEPENDS rr6_prelink
-    COMMENT "Pre-linking spec-constant shader variants"
-    VERBATIM)
-target_sources(rr6 PRIVATE "${RR6_GEN_DIR}/linked_shader_cache.cpp")
+if(RR6_D3D12_TARGETS)
+    # rr6_prelink DXC-links every specConstantsMask subset of the shader cache
+    # at build time, so the runtime never pays a DXC link for a shipped shader.
+    add_executable(rr6_prelink
+        tools/prelink_shader_cache.cpp
+        src/gpu/shaders/dxc_link.cpp
+        "${RR6_GEN_DIR}/shader_cache.cpp"
+        thirdparty/miniz/miniz.cpp
+        thirdparty/zstd/zstddeclib.c)
+    target_include_directories(rr6_prelink PRIVATE
+        src thirdparty/miniz thirdparty/zstd)
+    target_link_libraries(rr6_prelink PRIVATE Microsoft::DirectXShaderCompiler)
+    rr6_stage_dxc(rr6_prelink)
 
-target_compile_definitions(rr6 PRIVATE RR6_NATIVE_GPU RR6_D3D12)
-target_include_directories(rr6 PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    "${RR6_GEN_DIR}"
-    "${RR6_SHADER_COMMON_DIR}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/miniz"
-    "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/zstd")
-target_link_libraries(rr6 PRIVATE
-    plume
-    rr6_shader_cache
-    rex::xxhash
-    rex::o1heap
-    d3d12 dxgi
-    Microsoft::DirectXShaderCompiler)
-rr6_stage_dxc(rr6)
+    add_custom_command(
+        OUTPUT "${RR6_GEN_DIR}/linked_shader_cache.cpp"
+        COMMAND rr6_prelink "${RR6_GEN_DIR}/linked_shader_cache.cpp"
+        DEPENDS rr6_prelink
+        COMMENT "Pre-linking spec-constant shader variants"
+        VERBATIM)
+endif()
+
+foreach(target IN LISTS RR6_D3D12_TARGETS)
+    target_sources(${target} PRIVATE
+        ${rr6_d3d12_sources}
+        "${RR6_GEN_DIR}/linked_shader_cache.cpp")
+    target_compile_definitions(${target} PRIVATE RR6_D3D12)
+    target_link_libraries(${target} PRIVATE
+        d3d12 dxgi
+        Microsoft::DirectXShaderCompiler)
+    rr6_stage_dxc(${target})
+endforeach()
+
+# The SPIR-V cache stores each module smol-v encoded.
+set(rr6_smolv_dir "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/XenosRecomp/thirdparty/smol-v/source")
+set_source_files_properties("${rr6_smolv_dir}/smolv.cpp" PROPERTIES COMPILE_OPTIONS "-w")
+foreach(target IN LISTS RR6_VULKAN_TARGETS)
+    target_sources(${target} PRIVATE "${rr6_smolv_dir}/smolv.cpp")
+    target_include_directories(${target} PRIVATE "${rr6_smolv_dir}")
+endforeach()
+
+# On Windows plume builds VK_KHR_win32_surface straight off the HWND and
+# reaches vulkan-1.dll through volk, so the Vulkan backend links nothing extra.
+if(NOT WIN32)
+    foreach(target IN LISTS RR6_VULKAN_TARGETS)
+        find_package(Vulkan REQUIRED)
+        target_link_libraries(${target} PRIVATE Vulkan::Vulkan)
+    endforeach()
+endif()

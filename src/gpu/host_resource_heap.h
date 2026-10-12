@@ -8,11 +8,9 @@
  *            See LICENSE file in the project root for full license text.
  *
  * Allocates a guest block of sizeof(T), placement-news the host object, and
- * records the guest VA. The first bytes of each host struct mirror the X360 SDK
- * struct so the engine reads valid Common/ReferenceCount/fetch constant bytes
- * off offset 0, host fields live past the X360 prefix. FromGuest checks the
- * registry to reject engine-supplied sentinel pointers (init writes a
- * non-resource default into all 16 RT slots).
+ * records the guest VA. RR6's own D3D creates every resource the guest sees,
+ * so guest code never reads these objects. FromGuest checks the registry so a
+ * guest resource's address, or a sentinel, never resolves to a host object.
  */
 #pragma once
 
@@ -40,8 +38,7 @@ public:
     if (!host)
       return nullptr; // HostHeap logs OOM once
     const u32 guest = memory->HostToGuestVirtual(host);
-    // Zero so the X360 header bytes the engine reads are defined before the
-    // create path sets the real type bits.
+    // Zeroed so the block holds no stale bytes from a previous allocation.
     std::memset(host, 0, sizeof(T));
     auto *obj = new (host) T(std::forward<Args>(args)...);
     obj->selfVa = guest;

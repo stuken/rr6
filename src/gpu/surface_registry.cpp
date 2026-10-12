@@ -51,9 +51,7 @@ Registry &registry() {
   return r;
 }
 
-bool Held(const GuestTexture *surface) {
-  return u32(surface->x360.as_surface.resource.ReferenceCount) != 0;
-}
+bool Held(const GuestTexture *surface) { return surface->held; }
 
 GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
                             plume::RenderFormat plume_format,
@@ -65,8 +63,7 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
     RR6_ERROR("CreateSurface: host resource heap exhausted");
     return nullptr;
   }
-  InitResourceHeader(surface->x360.as_surface.resource,
-                     D3DResourceType::kSurface);
+  surface->held = true;
 
   plume::RenderTextureDesc desc;
   desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
@@ -109,8 +106,7 @@ GuestTexture *CreateSurface(u32 width, u32 height, u32 guest_format,
 
 void ResetIssuedSurface(GuestTexture *surface, u32 guest_format,
                         bool is_depth) {
-  InitResourceHeader(surface->x360.as_surface.resource,
-                     D3DResourceType::kSurface);
+  surface->held = true;
   Video::ReissueSurface(surface);
   surface->resolveScale = 1.0f;
   surface->resolveLevel = 0;

@@ -48,17 +48,7 @@ std::unordered_map<u32, GuestVertexDeclaration *> g_decls;
 u32 g_default_back_buffer = 0;
 std::atomic<u32> g_bound_render_target{0};
 
-// D3DSURFACE_DESC as XDK 2135's D3DSurface_GetDesc (0x82252FC0) writes it.
-struct SurfaceDesc {
-  be_u32 Format;
-  be_u32 Type;
-  be_u32 Usage;
-  be_u32 Pool;
-  be_u32 MultiSampleType;
-  be_u32 MultiSampleQuality;
-  be_u32 Width;
-  be_u32 Height;
-};
+using SurfaceDesc = rr6::gpu::D3DSurfaceDesc;
 
 // Runs the guest's own GetDesc on an isolated frame, with the descriptor on
 // the guest stack below the caller's live frames.
@@ -136,7 +126,7 @@ bool ForgetGuestSurface(u32 surface_va) {
     g_surfaces.erase(it);
   }
   if (host && host != state().back_buffer_surface)
-    host->x360.as_surface.resource.ReferenceCount = 0u;
+    host->held = false;
   return true;
 }
 

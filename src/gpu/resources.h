@@ -8,8 +8,8 @@
  * @license   BSD 3-Clause License
  *            See LICENSE file in the project root for full license text.
  *
- * Each struct opens with the X360 header layout the recompiled engine reads
- * (see gpu/d3d.h) and continues with the plume objects backing it.
+ * RR6's own D3D creates every guest resource, so these are host-side records
+ * keyed by the guest header's address. No guest code reads them.
  */
 #pragma once
 
@@ -37,16 +37,7 @@ enum class ResourceType : u32 {
   PixelShader = 8,
 };
 
-union GuestTextureX360 {
-  D3DTexture as_texture;
-  D3DSurface as_surface;
-  u8 raw[52];
-};
-static_assert(sizeof(GuestTextureX360) == 52);
-
 struct GuestTexture {
-  GuestTextureX360 x360;
-
   ResourceType type = ResourceType::Texture;
   u32 selfVa = 0;
 
@@ -70,6 +61,9 @@ struct GuestTexture {
   u32 resolveLevel = 0;
   u32 resolveFace = 0;
   bool registered = false;
+  // A surface-registry surface some guest surface maps to. Cleared when that
+  // guest surface is destroyed, so the registry can reissue it.
+  bool held = false;
   bool pendingDestroy = false;
   bool pendingGPURead = false;
   bool reflection = false;
@@ -87,41 +81,23 @@ struct GuestTexture {
   GuestTexture &operator=(const GuestTexture &) = delete;
 };
 
-union GuestBufferX360 {
-  D3DVertexBuffer as_vertex_buffer; // 32 bytes
-  D3DIndexBuffer as_index_buffer;   // 32 bytes
-  u8 raw[32];
-};
-static_assert(sizeof(GuestBufferX360) == 32);
-
 struct GuestBuffer {
-  GuestBufferX360 x360;
-
   ResourceType type = ResourceType::VertexBuffer;
   u32 selfVa = 0;
 
   std::unique_ptr<plume::RenderBuffer> buffer;
-  // Block mode: a physical mesh can be a non-owning offset view into a shared
-  // per-block RenderBuffer (owned by physical_buffers' block map). Then
-  // draw/lock bind blockBuffer at blockOffset, 'buffer' stays null, and the
-  // block owns the lifetime. Host buffers leave blockBuffer null and own
-  // 'buffer'.
-  plume::RenderBuffer *blockBuffer = nullptr;
-  u32 blockOffset = 0;
-  // Guest memory scratch the engine Locks into. Host VB/IB: a reblue
-  // SystemHeapAlloc owned here (ownsMirror), freed on destroy. Physical
-  // buffers: aliases the engine's own base address (!ownsMirror).
+  // The guest data the mirror copies from (guest_buffers.cpp). ownsMirror is
+  // set only when the renderer allocated it, so the graveyard frees it.
   u32 guestMirrorVa = 0;
   bool ownsMirror = false;
   u32 dataSize = 0;
   plume::RenderFormat format = plume::RenderFormat::UNKNOWN;
   u32 guestFormat = 0;
 
-  // True once a host RenderBuffer (owned or block-shared) backs this buffer.
-  bool hasBuffer() const { return blockBuffer != nullptr || buffer != nullptr; }
-  // 'offset' bytes in, past the block view's base. Caller checks hasBuffer().
+  bool hasBuffer() const { return buffer != nullptr; }
+  // 'offset' bytes in. Caller checks hasBuffer().
   plume::RenderBufferReference bufferRef(u32 offset) const {
-    return (blockBuffer ? blockBuffer : buffer.get())->at(blockOffset + offset);
+    return buffer->at(offset);
   }
 
   GuestBuffer() = default;
@@ -130,10 +106,8 @@ struct GuestBuffer {
   GuestBuffer &operator=(const GuestBuffer &) = delete;
 };
 
-// VertexShader / PixelShader, both bare D3DResource (24 bytes).
+// VertexShader / PixelShader.
 struct GuestShader {
-  D3DVertexShader x360; // == D3DPixelShader layout
-
   ResourceType type = ResourceType::VertexShader;
   u32 selfVa = 0;
 
@@ -161,8 +135,6 @@ struct GuestVertexElement {
 static_assert(sizeof(GuestVertexElement) == 12);
 
 struct GuestVertexDeclaration {
-  D3DVertexDeclaration x360;
-
   ResourceType type = ResourceType::VertexDeclaration;
   u32 selfVa = 0;
 

@@ -18,8 +18,7 @@ namespace rr6::gpu {
 namespace {
 
 // FromGuest rejects unregistered (sentinel) VAs, and the stored type lets
-// Release/DestroyByType dispatch without a uniform offset runtime type field
-// (the X360 prefix size differs per resource kind).
+// Release/DestroyByType dispatch without reading the object.
 std::shared_mutex g_registry_mutex;
 std::unordered_map<u32, ResourceType> g_registry;
 

@@ -34,7 +34,7 @@ Reference implementation: `D:\reblue` (v1.3.1). SDK: rexglue 0.10.0 (both projec
 **Guest layout**
 
 - `src/gpu/d3d.h` has rr6's `D3DDevice` (`0x5080`) with only the fields `config/d3d.toml` cites.
-- The resource headers are still BD's and unverified for XDK 2135 (see the file header).
+- The resource headers are XDK 2135's, verified (see Resources under the open items).
 
 **Hooks** (`src/gpu/hooks/device.cpp`)
 
@@ -146,9 +146,27 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
 
 1. **Coverage:** checked against xenos: boot, Pac-Man, title, main menu, World Xplorer, car select, course intro, the Harborline 765 and Lakeshore Drive races (Single Race), the intro movie, and the attract demo (Rave City Riverfront at night, Highland Cliffs). All match apart from timing. The attract demo's course is random per run, so it can't be paired frame for frame. Open: whether the car headlight flares are fixed by the same change.
 - **Sun visibility (partial resolves):** RR6's D3D has no occlusion queries. The sun instead draws a probe disc into the scene with a depth test, resolves the 64x64 region around it (`D3DDevice_Resolve` with a source rect), and the sun's glow draw samples that 64x64 texture to scale itself (RenderDoc capture `sun_visible.rdc`, events 2829-2864). Native resolved the whole 1440x800 surface shrunk into 64x64, so the glow read unrelated pixels and showed through the cliff. Resolves now honour the source rect and destination point with a region copy (`CopySurfaceRegionLocked`) when formats match and nothing is scaled; otherwise they fall back to a whole-surface resolve with a warning. The probe itself also never drew: the clear quad, the probe quad and the restore disc are drawn with `D3DRS_VIEWPORTENABLE` off, so PA_CL_VTE_CNTL (device `+0x2D8C`, 0x400 rather than 0x43F) leaves their positions in render target pixels. Native always applied the viewport, so they landed far off screen. Every recompiled VS now ends with `oPos.xy = oPos.xy * g_NdcScale + (g_NdcOffset + g_HalfPixelOffset) * oPos.w`. The scale and offset (`c28`) are the identity normally, and map window coordinates onto the host viewport while x/y scale and offset are off. Verified in game on Highland Cliffs (`sun_visible2.rdc` was the capture before this fix).
-2. **Resources:**
-   - verify the XDK 2135 VB/IB/texture/surface headers (VB: 20 bytes, refcount in Common's low byte; texture: 40; surface: 64);
-   - then port reblue's `hooks/resource.cpp` against them: create, lock and unlock, `AddRef`/`Release`/`Destroy`, `GetDesc`/`GetLevelDesc`, `GetSurfaceLevel`, and the cube and volume variants.
+2. **Resources:** the XDK 2135 headers are verified and in `gpu/d3d.h`.
+   - **Read from:** the creators, `AddRef`/`Release`/`Destroy`/`GetType`, `SetStreamSource`, `GetSurfaceLevel`, the lock functions and the desc functions.
+   - **`D3DResource` (12 bytes):**
+     - `Common` packs the reference count (bits 0-7), the kind (bits 16-18: 1 VB, 2 IB, 3 texture, 4 surface) and a device bind count (bits 19-23, +0x80000 per bind);
+     - then `Fence` and `BaseFlush`.
+   - **Buffers:** VB and IB are 20 bytes. A VB holds fetch words 0 and 1 at +12/+16; an IB holds its raw address and size there, with INDEX32 in `Common` bit 31.
+   - **Texture (40 bytes):** `MipFlush`, then the fetch constant at +16.
+   - **Surface (64 bytes):**
+     - its own fetch constant at +16;
+     - then `Size`, `Parent` (level surfaces, `Common` bit 25), `RB_SURFACE_INFO`, `RB_COLOR_INFO`/`RB_DEPTH_INFO` and HiZ.
+   - **Checked against live data:** a two-race run with `rr6_log_destroy` decoded every destroyed resource as expected:
+     - about 8,800 resources;
+     - pitches, EDRAM sizes and parent links matched;
+     - frames and warnings were unchanged from run155.
+   - **Old code removed:**
+     - the dead `physical_buffers.*` (Blue Dragon `bdPhysical*`/`bdSceneGraph` hooks that never bind in RR6);
+     - the vestigial Blue Dragon header prefixes on the host records. No guest code reads those, because RR6's own D3D creates every resource.
+   - **reblue's resource hooks are not ported, and I recommend against it:**
+     - reblue needed them because its host objects *were* the guest resources; in RR6 the guest D3D does creation, locking and lifetime correctly;
+     - the renderer mirrors by address and drops mirrors at `D3DResource_Destroy` and `XPhysicalFree`;
+     - the remaining value would be `Lock`/`Unlock` as a dirty signal in place of the per-frame rehash, which is a Phase 5 performance question.
 3. **Renderer gaps:** each unmodeled path now warns on its first hits (`RR6_WARN_FIRST`, `core/logging.h`):
    - `Clear` with rects (the whole target clears);
    - depth resolves (`D3DRESOLVE_DEPTHSTENCIL`);

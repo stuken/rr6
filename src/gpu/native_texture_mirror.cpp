@@ -119,10 +119,9 @@ u32 FetchDepth(const xe::xe_gpu_texture_fetch_t &f) {
   return f.dimension == xe::DataDimension::k3D ? f.size_3d.depth + 1u : 1u;
 }
 
-// XDK 2135 D3DBaseTexture: the 12-byte resource header, a dword, then the
-// texture fetch constant at +16 (D3DTexture_UnlockRect reads its base address
-// at +20 and mip address at +36). reblue's BD layout has it at +0x1C.
-constexpr u32 kTextureFetchOffset = 16;
+// D3DTexture_UnlockRect reads the base address at +20 and the mip address at
+// +36, dwords 1 and 5 of this fetch constant.
+constexpr u32 kTextureFetchOffset = offsetof(D3DTexture, Format);
 
 bool ReadFetchWords(u32 guest_va, u32 fc[6]) {
   const auto *words =

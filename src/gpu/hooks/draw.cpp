@@ -56,17 +56,8 @@ using rr6::gpu::GuestBuffer;
 using rr6::gpu::ResourceType;
 using rr6::gpu::Video;
 
-// XDK 2135 vertex and index buffer headers: Common (type, refcount in the low
-// byte, INDEX32 in bit 31 for index buffers), then at +12/+16 the vertex fetch
-// constant (base | 3, (size & 0x03FFFFFC) | 2) for a vertex buffer, or the
-// raw base and byte size for an index buffer (0x82254C70 / 0x82254DA0).
-struct GuestBufferHeader {
-  be_u32 Common;
-  be_u32 Fence;
-  be_u32 field8;
-  be_u32 word12;
-  be_u32 word16;
-};
+using rr6::gpu::D3DIndexBuffer;
+using rr6::gpu::D3DVertexBuffer;
 
 // Draw counters, reported by LogDrawStats from the Present hook.
 struct DrawStats {
@@ -199,13 +190,13 @@ void BindGuestGeometry(const D3DDevice &dev, bool indexed) {
     const u32 offset = dev.streams[i][0];
     const u32 vb_va = dev.streams[i][1];
     const u32 stride = u32(dev.streamStrides[i]) * 4;
-    const auto *vb = rr6::mem::at<const GuestBufferHeader>(vb_va);
+    const auto *vb = rr6::mem::at<const D3DVertexBuffer>(vb_va);
     if (!vb_va || !vb) {
       Video::SetVertexStream(i, {}, 0, stride);
       continue;
     }
-    const u32 base = u32(vb->word12) & ~0x3u;
-    const u32 size = u32(vb->word16) & 0x03FFFFFCu;
+    const u32 base = u32(vb->Fetch0) & ~0x3u;
+    const u32 size = u32(vb->Fetch1) & 0x03FFFFFCu;
     GuestBuffer *mirror =
         rr6::gpu::MirrorGuestBuffer(base, size, ResourceType::VertexBuffer, 4,
                                     plume::RenderFormat::UNKNOWN);
@@ -218,12 +209,13 @@ void BindGuestGeometry(const D3DDevice &dev, bool indexed) {
   BindGuestTextures(dev);
   if (!indexed)
     return;
-  const auto *ib = rr6::mem::at<const GuestBufferHeader>(dev.indexBuffer);
+  const auto *ib = rr6::mem::at<const D3DIndexBuffer>(dev.indexBuffer);
   GuestBuffer *mirror = nullptr;
   if (dev.indexBuffer && ib) {
-    const bool index32 = (u32(ib->Common) & 0x80000000u) != 0;
+    const bool index32 =
+        (u32(ib->resource.Common) & rr6::gpu::kCommonIndex32) != 0;
     mirror = rr6::gpu::MirrorGuestBuffer(
-        ib->word12, ib->word16, ResourceType::IndexBuffer, index32 ? 4 : 2,
+        ib->Address, ib->Size, ResourceType::IndexBuffer, index32 ? 4 : 2,
         index32 ? plume::RenderFormat::R32_UINT : plume::RenderFormat::R16_UINT);
   }
   Video::SetIndices(mirror);
@@ -233,13 +225,14 @@ void BindGuestGeometry(const D3DDevice &dev, bool indexed) {
 // i0 i1 i2 i3 as i0 i1 i2, i0 i2 i3, the order QuadlistExpansionIBView uses)
 // in the upload heap and draws it. Caller holds the state mutex.
 bool DrawIndexedQuadList(const D3DDevice &dev, const DrawArgs &args, u32 quads) {
-  const auto *ibh = rr6::mem::at<const GuestBufferHeader>(dev.indexBuffer);
+  const auto *ibh = rr6::mem::at<const D3DIndexBuffer>(dev.indexBuffer);
   if (!quads || !dev.indexBuffer || !ibh)
     return false;
-  const bool index32 = (u32(ibh->Common) & 0x80000000u) != 0;
+  const bool index32 =
+      (u32(ibh->resource.Common) & rr6::gpu::kCommonIndex32) != 0;
   const u32 index_size = index32 ? 4u : 2u;
-  const u32 ib_base = u32(ibh->word12);
-  const u32 ib_size = u32(ibh->word16);
+  const u32 ib_base = u32(ibh->Address);
+  const u32 ib_size = u32(ibh->Size);
   if (u64(args.startIndex + quads * 4) * index_size > ib_size)
     return false;
   const auto *src =

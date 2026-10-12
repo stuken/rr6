@@ -29,7 +29,6 @@
 #include "gpu/constant_buffers.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/native_texture_mirror.h"
-#include "gpu/physical_buffers.h"
 #include "gpu/surface_registry.h"
 
 namespace rr6::gpu {
@@ -213,8 +212,7 @@ void DrainSlot(VideoState &s, u32 slot) {
     DrainEvictedNativeTextures(slot);
   }
   {
-    RR6_CPU_ZONE("DrainPhysGraveyard");
-    DrainBufferGraveyard(slot);
+    RR6_CPU_ZONE("DrainBufferMirrors");
     DrainGuestBufferMirrors(slot);
   }
 }

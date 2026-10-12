@@ -45,59 +45,48 @@ bool ForgetGuestSurface(u32 surface_va);
 
 namespace {
 
-// D3DResource_Destroy (0x82254720) switches on Common bits 16-18.
-enum : u32 {
-  kTypeVertexBuffer = 1,
-  kTypeIndexBuffer = 2,
-  kTypeTexture = 3,
-  kTypeSurface = 4,
-};
+using rr6::gpu::D3DCommonType;
 
-// The buffer header past the common D3DResource fields: a vertex buffer keeps
-// its fetch constant's first two words at +12/+16 (base | type, size), an
-// index buffer its raw base and size (hooks/draw.cpp reads the same words).
-struct GuestBufferWords {
-  be_u32 Common;
-  be_u32 ReferenceCount;
-  be_u32 Fence;
-  be_u32 word12;
-  be_u32 word16;
-};
-
-const char *TypeName(u32 type) {
+const char *TypeName(D3DCommonType type) {
   switch (type) {
-  case kTypeVertexBuffer:
+  case D3DCommonType::kVertexBuffer:
     return "vertex buffer";
-  case kTypeIndexBuffer:
+  case D3DCommonType::kIndexBuffer:
     return "index buffer";
-  case kTypeTexture:
+  case D3DCommonType::kTexture:
     return "texture";
-  case kTypeSurface:
+  case D3DCommonType::kSurface:
     return "surface";
   default:
     return "resource";
   }
 }
 
+// D3DResource_Destroy (0x82254720) switches on the same Common type bits.
 void EvictMirrors(u32 va) {
-  const auto *hdr = rr6::mem::at<const GuestBufferWords>(va);
+  const auto *hdr = rr6::mem::at<const rr6::gpu::D3DResource>(va);
   if (!hdr)
     return;
-  const u32 type = (u32(hdr->Common) >> 16) & 7u;
+  const u32 common = hdr->Common;
+  const D3DCommonType type = rr6::gpu::CommonType(common);
   bool evicted = false;
   switch (type) {
-  case kTypeVertexBuffer:
-    evicted = rr6::gpu::EvictGuestBuffer(u32(hdr->word12) & ~0x3u,
+  case D3DCommonType::kVertexBuffer: {
+    const auto *vb = rr6::mem::at<const rr6::gpu::D3DVertexBuffer>(va);
+    evicted = rr6::gpu::EvictGuestBuffer(u32(vb->Fetch0) & ~0x3u,
                                          rr6::gpu::ResourceType::VertexBuffer);
     break;
-  case kTypeIndexBuffer:
-    evicted = rr6::gpu::EvictGuestBuffer(u32(hdr->word12),
+  }
+  case D3DCommonType::kIndexBuffer: {
+    const auto *ib = rr6::mem::at<const rr6::gpu::D3DIndexBuffer>(va);
+    evicted = rr6::gpu::EvictGuestBuffer(u32(ib->Address),
                                          rr6::gpu::ResourceType::IndexBuffer);
     break;
-  case kTypeTexture:
+  }
+  case D3DCommonType::kTexture:
     evicted = rr6::gpu::EvictGuestTexture(va);
     break;
-  case kTypeSurface:
+  case D3DCommonType::kSurface:
     evicted = rr6::gpu::ForgetGuestSurface(va);
     break;
   default:
@@ -105,7 +94,7 @@ void EvictMirrors(u32 va) {
   }
   if (REXCVAR_GET(rr6_log_destroy))
     RR6_INFO("D3DResource_Destroy 0x{:08X}: {} (Common 0x{:08X}){}", va,
-             TypeName(type), u32(hdr->Common), evicted ? ", mirror dropped" : "");
+             TypeName(type), common, evicted ? ", mirror dropped" : "");
 }
 
 // Live XPhysicalAlloc allocations, virtual base -> size. Fetch constants and

@@ -1,0 +1,110 @@
+/**
+ * @file  gpu/native_texture_mirror.h
+ * @brief   Registry and builder for BD native (bdAllocRenderBuffer) content
+ *          textures, keyed by guest VA. Native textures are engine-allocated
+ *          outside any hooked D3D create API, so HostResourceHeap has no
+ *          GuestTexture for them. The bdAllocRenderBuffer hook decodes the
+ *          Xenos fetch constant, untiles the DXT data and registers a host BC
+ *          mirror here. LoadTexture__vf03 evicts on free.
+ * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
+ *            All rights reserved.
+ * @license   BSD 3-Clause License
+ *            See LICENSE file in the project root for full license text.
+ */
+#pragma once
+
+#include <functional>
+#include <string_view>
+#include <vector>
+
+#include <rex/types.h>
+
+#include "gpu/resources.h"
+
+namespace rr6::gpu {
+
+// nullptr when format/dimension unsupported or the build fails. name_va is the
+// guest VA of the asset basename (bdAllocRenderBuffer arg0), logged on
+// rejection to identify which content textures reblue cannot mirror, or 0 if
+// unknown. Call only at guest texture creation: a cached entry at the same VA
+// is treated as stale (prior occupant freed via an unhooked path) and rebuilt.
+GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va = 0);
+
+// Resolves a guest VA to its host GuestTexture (HostResourceHeap object or
+// native mirror), or nullptr if neither.
+GuestTexture *ResolveGuestTexture(u32 guest_va);
+
+// RR6: the mirror of an unhooked guest texture, built on first use and rebuilt
+// when its fetch constant changes. nullptr when unsupported.
+GuestTexture *ResolveOrMirrorGuestTexture(u32 guest_va);
+
+// RR6: visits every live resolve target (frame dumps).
+void ForEachResolveTarget(
+    const std::function<void(u32 guest_va, GuestTexture *tex)> &fn);
+
+// RR6: the resolve target already backing a guest texture, or nullptr.
+GuestTexture *FindResolveTarget(u32 guest_va);
+
+// RR6: the host texture D3DDevice_Resolve writes for a guest texture, created
+// (or recreated) at the fetch constant's size in 'format'.
+GuestTexture *GetOrCreateResolveTarget(u32 guest_va,
+                                       plume::RenderFormat format);
+
+// RR6: forgets everything mirrored for a destroyed guest texture
+// (D3DResource_Destroy): its texel mirror, its resolve target and its cached
+// signature, so a texture later created at the same VA is built fresh rather
+// than matched to the old one. Returns whether anything was mirrored.
+bool EvictGuestTexture(u32 guest_va);
+
+// RR6: EvictGuestTexture for every mirrored texture whose base or mip address
+// lies in [begin, end), a freed allocation. RR6's fetch constants hold virtual
+// addresses, so the range is one too. Returns the count.
+u32 EvictGuestTexturesInRange(u32 begin, u32 end);
+
+// Queues the host GuestTexture for deferred teardown.
+void EvictNativeTexture(u32 guest_va);
+
+// One live native texture: its D3DTexture VA and the allocation's sequence
+// number. The sequence is what a caller tracking per-instance state keys on,
+// since a freed texture's VA can be reused by the next allocation.
+struct NativeTextureRef {
+  u32 va = 0;
+  u64 seq = 0;
+};
+
+// The live native textures whose asset name matches, compared as a lowercased
+// basename with no directory or extension, so both the full path a texlist
+// request logs and the bare stem a preload names find the same entry. Guest
+// thread, like everything else here.
+std::vector<NativeTextureRef> NativeTexturesByName(std::string_view name);
+
+// Rewrites a live native texture's tiled payload from a whole blob file image
+// (the bdAllocRenderBuffer non-DDS layout) and rebuilds the host mirror, so
+// every prompt already on screen shows the new texels on its next draw. The
+// blob must carry the same dimensions and format the live texture was created
+// with, a mismatch is refused, since the physical allocation cannot change
+// size underneath the engine.
+bool NativeTextureReplace(u32 guest_va, const u8 *blob, size_t size);
+
+// Mip 0's uv sub-rect outside the flat field its corner block carries, for the
+// views that fit a whole guest texture into a frame.
+struct TextureContent {
+  float u0 = 0.0f;
+  float v0 = 0.0f;
+  float u1 = 1.0f;
+  float v1 = 1.0f;
+
+  float Width() const { return u1 - u0; }
+  float Height() const { return v1 - v0; }
+
+  // Whole blocks compared against the corner block, since a flat field encodes
+  // to the same bytes everywhere. The whole texture back when nothing differs.
+  static TextureContent Scan(u32 guest_va);
+};
+
+// Free mirrors evicted while frame slot 'slot' was recording. Drained
+// post-fence so the descriptor write + free cannot race an in-flight command
+// list.
+void DrainEvictedNativeTextures(u32 slot);
+
+} // namespace rr6::gpu

@@ -1,0 +1,6 @@
+# XAPI functions statically linked into RR6's default.xex that rr6's host code
+# hooks. Identified from their bodies (scripts/re/funcdb.py).
+
+[functions]
+0x8224C9B8 = { name = "XInputGetCapabilities" } # tail-calls XamInputGetCapabilities
+0x8224C9C0 = { name = "XInputGetState" } # (user, state) -> XamInputGetState(user, 0, state)

@@ -1,0 +1,30 @@
+[functions]
+0x821111D0 = {}
+0x82138AC8 = {}
+0x82162440 = {}
+0x82162470 = {}
+0x82162480 = {}
+0x821624C0 = {}
+0x821624E0 = {}
+0x82162510 = {}
+0x82162540 = {}
+0x82162550 = {}
+0x82179E98 = {}
+0x821C5B60 = {}
+0x82228898 = {}
+0x822288A8 = {}
+0x822A8288 = {}
+0x822A8EA8 = {}
+0x822A90D8 = {}
+0x822C49B0 = {}
+0x822E25C8 = {}
+0x82329200 = {}
+0x8232EF30 = {}
+
+# Triggers at runtime while waiting on time attack screen
+0x821624A0 = {}
+
+# 0x8217D288 and 0x8217C938 have incorrect codegen, bad switch generated after bctr instruction. 
+# Need to manually replace with REX_CALL_INDIRECT_FUNC(ctx.ctr.u32) and return.
+0x8217C938 = { name = "badSwitchA" }
+0x8217D288 = { name = "badSwitchB" }

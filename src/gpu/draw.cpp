@@ -260,9 +260,8 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
       }
       return false;
     }
-    // 'built' means this draw compiled the PSO synchronously, so neither
-    // residual nor predictor covered it. Warns once per pipeline, and
-    // RR6_PSO_CAP builds also capture it for the residual/template tooling.
+    // 'built' means this draw compiled the PSO synchronously because the
+    // precache list lacks it (or its background compile had not finished).
     RecordPipelineState(lookup, CurrentRenderPassId(), built);
     s.command_list->setPipeline(pso);
     s.current_pso = pso;

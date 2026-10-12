@@ -35,6 +35,7 @@
 #include "gpu/native_texture_mirror.h"
 #include "gpu/output.h"
 #include "gpu/resources.h"
+#include "gpu/perf_stats.h"
 
 REXCVAR_DEFINE_INT32(rr6_trace_frame, 0, kCvarGroup,
                      "Log every draw and resolve of present frame N (0 = off)");
@@ -269,6 +270,7 @@ bool DrawIndexedQuadList(const D3DDevice &dev, const DrawArgs &args, u32 quads) 
 }
 
 void DispatchDraw(u32 device_guest, u32 primitive_type, const DrawArgs &args) {
+  rr6::gpu::perf::Scope timer(rr6::gpu::perf::Counter::Draw);
   RR6_CPU_ZONE("Draw");
   const auto *dev = rr6::mem::at<const D3DDevice>(device_guest);
   if (!dev || !args.vertexOrIndexCount)

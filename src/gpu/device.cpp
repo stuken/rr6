@@ -325,6 +325,7 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
     s.command_list = s.command_lists[0].get(); // recording alias -> slot 0
     [[maybe_unused]] const bool dred_breadcrumbs = PrepareDredCommandObjects();
     InstallDebugMessageLogger();
+    ApplyShaderCacheControl();
 
     const bool upload_caps = s.device->getCapabilities().gpuUploadHeap;
     const bool upload_on = upload_caps && Settings::Get().GeometryGPUUpload();

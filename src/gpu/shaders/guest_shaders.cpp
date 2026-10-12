@@ -29,6 +29,7 @@
 #define MINIZ_HEADER_FILE_ONLY
 #include "gpu/shaders/linked_shader_cache.h"
 #include "gpu/shaders/shader_linker.h"
+#include "gpu/perf_stats.h"
 #include <miniz.h>
 #else
 #include <smolv.h>
@@ -150,11 +151,13 @@ GuestShader *CreateShader(const be_u32 *function, ResourceType type) {
   const u32 hash_len = container->virtualSize + container->physicalSize;
   const u64 hash = XXH3_64bits(function, hash_len);
   ShaderCacheEntry *entry = FindShaderCacheEntry(hash);
+  // RR6 creates some shaders more than once (244 containers, 176 distinct).
+  // Equal microcode shares one host shader, as pipelines key on its pointer.
+  if (entry && entry->guestShader)
+    return entry->guestShader;
   auto *shader = HostResourceHeap::Alloc<GuestShader>(type);
   if (entry) {
-    if (entry->guestShader == nullptr) {
-      entry->guestShader = shader;
-    }
+    entry->guestShader = shader;
     shader->shaderCacheEntry = entry;
   } else {
     RR6_WARN("Shader cache miss: hash=0x{:016X} len={} type={}", hash, hash_len,
@@ -236,6 +239,7 @@ plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
     RR6_WARN("GetOrLinkShader: no prelinked variant, runtime DXC link "
             "(hash=0x{:016X} mask=0x{:X})",
             entry->hash, masked);
+    perf::Scope timer(perf::Counter::ShaderLink);
     std::vector<u8> linked =
         LinkSpecConstant(cache + entry->dxilOffset, entry->dxilSize,
                          gs->type == ResourceType::PixelShader, masked);

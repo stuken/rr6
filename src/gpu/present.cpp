@@ -13,10 +13,22 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
+#include <format>
 #include <mutex>
+#include <string>
 #include <thread>
 
 #include <plume_render_interface.h>
+#if defined(RR6_D3D12)
+#include <plume_d3d12.h>
+// After plume_d3d12.h, which brings in windows.h. winternl.h has NTSTATUS.
+#include <winternl.h>
+#include <d3dkmthk.h>
+#endif
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "gpu/gpu_profiling.h"
 
@@ -28,6 +40,7 @@
 #include "gpu/constant_buffers.h"
 #include "gpu/output.h"
 #include "gpu/settings.h"
+#include "gpu/perf_stats.h"
 
 REXCVAR_DEFINE_INT32(rr6_fps_limit, 60, kCvarGroup,
                      "Frame rate cap for presentation, 0 for none");
@@ -36,16 +49,163 @@ namespace rr6::gpu {
 
 namespace {
 
-void ApplyVsync(VideoState &s) {
-  if (s.swap_chain) {
-    s.swap_chain->setVsyncEnabled(Settings::Get().Vsync());
-  }
+using Clock = std::chrono::steady_clock;
+
+// Set while vsync alone holds the frame rate (see ApplyVsync), so PaceFrame
+// only guards against presents that stop blocking.
+bool g_display_locked = false;
+
+// The window's display refresh rate in whole Hz (59 for 59.94), 0 if unknown.
+// Re-read every two seconds so moving the window to another display counts.
+u32 DisplayRefreshHz(VideoState &s) {
+#if defined(RR6_D3D12)
+  static u32 s_hz = 0;
+  static Clock::time_point s_checked{};
+  const auto now = Clock::now();
+  if (s_checked.time_since_epoch().count() != 0 &&
+      now - s_checked < std::chrono::seconds(2))
+    return s_hz;
+  s_checked = now;
+  s_hz = 0;
+  auto *chain = static_cast<plume::D3D12SwapChain *>(s.swap_chain.get());
+  IDXGIOutput *output = nullptr;
+  if (!chain->d3d || FAILED(chain->d3d->GetContainingOutput(&output)))
+    return s_hz;
+  DXGI_OUTPUT_DESC desc{};
+  const bool described = SUCCEEDED(output->GetDesc(&desc));
+  output->Release();
+  DEVMODEW mode{};
+  mode.dmSize = sizeof(mode);
+  // 0 and 1 mean the hardware default rate, which says nothing.
+  if (described &&
+      EnumDisplaySettingsW(desc.DeviceName, ENUM_CURRENT_SETTINGS, &mode) &&
+      mode.dmDisplayFrequency > 1)
+    s_hz = mode.dmDisplayFrequency;
+  return s_hz;
+#else
+  (void)s;
+  return 0;
+#endif
 }
+
+// With vsync on and a refresh rate that is a whole multiple of the frame cap
+// (60 or 120 Hz at 60 fps), the swap chain waits that many vblanks per frame:
+// every frame stays on screen for the same number of refreshes, locked to the
+// display. A sleep pacer can't do that at 120 Hz: its wake-ups wander by a
+// millisecond or so, and any that straddle a vblank push a frame one refresh
+// late, which judders.
+void ApplyVsync(VideoState &s) {
+  if (!s.swap_chain)
+    return;
+  const bool vsync = Settings::Get().Vsync();
+  s.swap_chain->setVsyncEnabled(vsync);
+  g_display_locked = false;
+#if defined(RR6_D3D12)
+  UINT interval = 1;
+  const i32 fps = REXCVAR_GET(rr6_fps_limit);
+  const u32 hz = DisplayRefreshHz(s);
+  if (vsync && fps > 0 && hz) {
+    const u32 n = (hz + u32(fps) / 2) / u32(fps);
+    // DXGI takes at most 4. A 1 Hz slack covers the 59.94-style rates.
+    if (n >= 1 && n <= 4 && std::abs(i32(hz) - i32(n) * fps) <= 1) {
+      interval = n;
+      g_display_locked = true;
+    }
+  }
+  auto *chain = static_cast<plume::D3D12SwapChain *>(s.swap_chain.get());
+  if (chain->vsyncInterval != interval) {
+    RR6_INFO("frame pacing: {}", g_display_locked
+                                     ? std::format("{} vblank(s) per frame at "
+                                                   "{} Hz",
+                                                   interval, hz)
+                                     : std::string("timer"));
+    chain->vsyncInterval = interval;
+  }
+#endif
+}
+
+// Sleeps to 't' within a few microseconds. Windows' default sleep wakes up to
+// a millisecond or more late, so wait on a high resolution timer until just
+// short of it, then spin.
+void SleepUntil(Clock::time_point t) {
+#if defined(_WIN32)
+  static thread_local HANDLE s_timer = CreateWaitableTimerExW(
+      nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+      TIMER_ALL_ACCESS);
+  constexpr auto kSpin = std::chrono::microseconds(700);
+  const auto now = Clock::now();
+  if (s_timer && t - now > kSpin) {
+    LARGE_INTEGER due;
+    // Relative, in 100 ns units.
+    due.QuadPart = -i64(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            t - now - kSpin)
+                            .count() /
+                        100);
+    if (SetWaitableTimerEx(s_timer, &due, 0, nullptr, nullptr, nullptr, 0))
+      WaitForSingleObject(s_timer, INFINITE);
+  }
+  while (Clock::now() < t)
+    YieldProcessor();
+#else
+  std::this_thread::sleep_until(t);
+#endif
+}
+
+#if defined(RR6_D3D12)
+// For rr6_perf_stats: a thread timestamping the window's display vblanks, so
+// each frame's time on screen can be worked out. DXGI frame statistics read
+// zero while DWM composes the window, which is the usual case, and
+// IDXGIOutput::WaitForVBlank returns at once on some drivers, so this waits
+// on the kernel's vblank event for the window's output.
+void StartVBlankClock(VideoState &s) {
+  static std::once_flag s_once;
+  if (!perf::Enabled())
+    return;
+  std::call_once(s_once, [&s] {
+    auto *chain = static_cast<plume::D3D12SwapChain *>(s.swap_chain.get());
+    IDXGIOutput *output = nullptr;
+    const HRESULT got = chain->d3d ? chain->d3d->GetContainingOutput(&output)
+                                   : E_POINTER;
+    if (FAILED(got)) {
+      RR6_WARN("perf stats: no vblank clock (GetContainingOutput 0x{:08X})",
+               u32(got));
+      return;
+    }
+    DXGI_OUTPUT_DESC desc{};
+    const bool described = SUCCEEDED(output->GetDesc(&desc));
+    output->Release();
+    if (!described)
+      return;
+    HDC dc = CreateDCW(nullptr, desc.DeviceName, nullptr, nullptr);
+    if (!dc) {
+      RR6_WARN("perf stats: no vblank clock (CreateDC failed)");
+      return;
+    }
+    D3DKMT_OPENADAPTERFROMHDC open{};
+    open.hDc = dc;
+    const NTSTATUS opened = D3DKMTOpenAdapterFromHdc(&open);
+    DeleteDC(dc);
+    if (opened != 0) {
+      RR6_WARN("perf stats: no vblank clock (D3DKMTOpenAdapterFromHdc 0x{:X})",
+               u32(opened));
+      return;
+    }
+    std::thread([open] {
+      D3DKMT_WAITFORVERTICALBLANKEVENT wait{};
+      wait.hAdapter = open.hAdapter;
+      wait.VidPnSourceId = open.VidPnSourceId;
+      NTSTATUS status;
+      while ((status = D3DKMTWaitForVerticalBlankEvent(&wait)) == 0)
+        perf::NoteVBlank();
+      RR6_WARN("perf stats: vblank clock stopped (0x{:X})", u32(status));
+    }).detach();
+  });
+}
+#endif
 
 constexpr i32 kIdleFPS = 30;
 
 void PaceFrame(bool idle = false) {
-  using Clock = std::chrono::steady_clock;
   static Clock::time_point next{};
   i32 fps = REXCVAR_GET(rr6_fps_limit);
   if (idle && (fps <= 0 || fps > kIdleFPS))
@@ -54,11 +214,15 @@ void PaceFrame(bool idle = false) {
     next = {};
     return;
   }
+  // Locked to the display, the presents already block to the frame rate, and
+  // this only catches them returning early (a minimized or occluded window)
+  // without ever waking past a frame's vblank.
+  const double scale = g_display_locked && !idle ? 0.9 : 1.0;
   const auto period = std::chrono::duration_cast<Clock::duration>(
-      std::chrono::duration<double, std::milli>(1000.0 / fps));
+      std::chrono::duration<double, std::milli>(1000.0 * scale / fps));
   const auto now = Clock::now();
   if (next.time_since_epoch().count() != 0 && now < next) {
-    std::this_thread::sleep_until(next);
+    SleepUntil(next);
     next += period;
   } else {
     next = now + period;
@@ -333,8 +497,13 @@ void Video::Present(GuestTexture *frontBuffer) {
         s.resize_requested.store(true, std::memory_order_release);
     }
   }
+  perf::NotePresentQueued();
+#if defined(RR6_D3D12)
+  StartVBlankClock(s);
+#endif
   {
     RR6_CPU_ZONE("WaitFence");
+    perf::Scope timer(perf::Counter::FenceWait);
     AdvanceAndWaitReused(s);
   }
   MaybeDumpFrame(s, have_rt_blit ? rt : nullptr);
@@ -349,8 +518,10 @@ void Video::Present(GuestTexture *frontBuffer) {
   }
   {
     RR6_CPU_ZONE("PaceFrame");
+    perf::Scope timer(perf::Counter::PaceSleep);
     PaceFrame();
   }
+  perf::OnPresent();
 }
 
 void Video::SkipPresent() {

@@ -100,7 +100,7 @@ void StopGuestThreads() {
 
   Stage("quiesce-renderer", [] { gpu::Video::BeginShutdown(); });
   Stage("stop-guest-threads", [] { StopGuestThreads(); });
-  Stage("flush-caches", [] { gpu::FlushPSOCapture(); });
+  Stage("stop-pso-precache", [] { gpu::ShutdownPsoRecorder(); });
   Stage("gpu-drain", [] { gpu::Video::Shutdown(UiPump()); });
 
   g_finished.store(true, std::memory_order_release);

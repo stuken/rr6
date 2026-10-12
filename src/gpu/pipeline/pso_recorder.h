@@ -1,7 +1,7 @@
 /**
  * @file    gpu/pipeline/pso_recorder.h
- * @brief   Boot-time replay of the compiled-in PSO residual and
- *          (RR6_PSO_CAP builds) the predictor miss capture instrument.
+ * @brief   Background precompile of the compiled-in pipeline list, and the
+ *          capture that extends it.
  *
  * @copyright Copyright (c) 2026 Tom Clay <tomc@tctechstuff.com>
  *            All rights reserved.
@@ -16,23 +16,20 @@
 
 namespace rr6::gpu {
 
-// Called for every PSO bound by a draw. 'builtOnRenderThread' means the draw
-// compiled it synchronously: a first-encounter miss neither the compiled-in
-// residual nor the predictor covered. Warns once per pipeline, and
-// RR6_PSO_CAP builds also write the state to
-// <cache>/pso_misses_<session>.csv for the cache header generator. Precompiled
-// pipelines are never captured, so the dump is exactly what prediction missed.
+// Called for every PSO a draw binds (sanitized). 'builtOnRenderThread' means
+// the draw compiled it synchronously because the precache list lacks it:
+// logged once per pipeline, and captured under rr6_pso_capture.
 void RecordPipelineState(const PipelineState &state, u32 renderPassId,
                          bool builtOnRenderThread);
 
-// Precompile the generated pipeline state cache on the background pool,
-// deferring each entry until its shaders/decl exist. Call once after the host
+// Starts compiling the compiled-in list on background threads, each entry
+// once its shaders and vertex declaration exist. Call once after the host
 // device and main pipeline layout are ready.
 void ReplayBootCache();
 
-// Write the pending miss capture now (shutdown). No-op outside RR6_PSO_CAP,
-// and when nothing new arrived since the last periodic flush.
-void FlushPSOCapture();
+// Stops the background compiles (waiting for any in progress) and writes the
+// capture. Call before the device is torn down.
+void ShutdownPsoRecorder();
 
 // Called right after creating a guest shader / vertex decl so a deferred replay
 // entry waiting on that content hash can resolve and enqueue.

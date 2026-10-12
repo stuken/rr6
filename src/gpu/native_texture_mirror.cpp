@@ -33,6 +33,7 @@
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
 #include "gpu/texture_upload.h"
+#include "gpu/perf_stats.h"
 
 namespace rr6::gpu {
 
@@ -529,6 +530,7 @@ GuestTexture *GetOrCreateNativeMirror(u32 guest_va, u32 name_va) {
   }
 
   const MirrorLayout layout = MakeLayout(fetch);
+  perf::Scope timer(perf::Counter::TextureMirror);
   GuestTexture *tex = nullptr;
   switch (fetch.dimension) {
   case xe::DataDimension::k3D:
@@ -916,8 +918,10 @@ GuestTexture *ResolveOrMirrorGuestTexture(u32 guest_va) {
                            L.bytes_per_block * L.block_h;
       const u32 base = fetch.base_address << 12;
       const auto *src = rr6::mem::try_at<const u8>(base);
-      if (src && bytes && rr6::mem::try_at<const u8>(base + u32(bytes) - 1))
+      if (src && bytes && rr6::mem::try_at<const u8>(base + u32(bytes) - 1)) {
+        perf::Scope timer(perf::Counter::TexelHash, bytes);
         hash = XXH3_64bits(src, bytes);
+      }
       hashed_frame = frame;
     }
     signature ^= hash;

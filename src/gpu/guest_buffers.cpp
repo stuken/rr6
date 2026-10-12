@@ -15,6 +15,7 @@
 #include "gpu/device.h"
 #include "gpu/frame.h"
 #include "gpu/resources.h"
+#include "gpu/perf_stats.h"
 
 namespace rr6::gpu {
 
@@ -76,14 +77,22 @@ GuestBuffer *MirrorGuestBuffer(u32 base_va, u32 size, ResourceType type,
   if (same_shape && m.verified_frame == g_frame)
     return m.buffer.get();
 
-  const u64 hash = XXH3_64bits(src, size);
+  u64 hash;
+  {
+    perf::Scope timer(perf::Counter::BufferHash, size);
+    hash = XXH3_64bits(src, size);
+  }
   if (same_shape && hash == m.hash) {
     m.verified_frame = g_frame;
     return m.buffer.get();
   }
 
-  auto fresh = Upload(device, src, size, type == ResourceType::IndexBuffer,
-                      element_size);
+  std::unique_ptr<plume::RenderBuffer> fresh;
+  {
+    perf::Scope timer(perf::Counter::BufferUpload, size);
+    fresh = Upload(device, src, size, type == ResourceType::IndexBuffer,
+                   element_size);
+  }
   if (!fresh) {
     RR6_ERROR("MirrorGuestBuffer: upload failed (0x{:08X}, {} bytes)", base_va,
               size);

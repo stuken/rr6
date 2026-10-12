@@ -20,6 +20,7 @@
 #include "core/profiling.h"
 #include "gpu/device.h"
 #include "gpu/shaders/shader_cache.h"
+#include "gpu/perf_stats.h"
 
 namespace rr6::gpu {
 
@@ -290,7 +291,11 @@ plume::RenderPipeline *GetOrCreatePipeline(const PipelineState &state,
   }
   if (out_created)
     *out_created = true;
-  auto p = Build(state);
+  std::unique_ptr<plume::RenderPipeline> p;
+  {
+    perf::Scope timer(perf::Counter::PsoBuild);
+    p = Build(state);
+  }
   if (!p)
     return nullptr;
   std::lock_guard lock(g_mutex);

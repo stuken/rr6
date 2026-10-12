@@ -38,4 +38,10 @@ bool EnableDebugLayer();
 // validation error shows up beside the guest call that caused it.
 void InstallDebugMessageLogger();
 
+// rr6_d3d12_no_shader_cache: stops this process reading or writing the
+// driver's and the runtime's shader caches (Windows developer mode only), so
+// every pipeline compiles from scratch as on a first run. For measuring
+// pipeline compile cost; the caches on disk are left alone.
+void ApplyShaderCacheControl();
+
 } // namespace rr6::gpu

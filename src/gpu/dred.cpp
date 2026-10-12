@@ -13,12 +13,16 @@
 
 REXCVAR_DEFINE_BOOL(rr6_d3d12_debug, false, kCvarGroup,
                     "Enable the D3D12 debug layer and log its messages");
+REXCVAR_DEFINE_BOOL(rr6_d3d12_no_shader_cache, false, kCvarGroup,
+                    "Bypass the driver shader cache so pipelines compile cold "
+                    "(needs Windows developer mode)");
 
 #if !defined(RR6_D3D12)
 
 namespace rr6::gpu {
 bool EnableDebugLayer() { return false; }
 void InstallDebugMessageLogger() {}
+void ApplyShaderCacheControl() {}
 bool EnableDred() { return false; }
 bool PrepareDredCommandObjects() { return false; }
 void LogDredReport(const char *) {}
@@ -232,6 +236,29 @@ bool EnableDebugLayer() {
   debug->EnableDebugLayer();
   debug->Release();
   return true;
+}
+
+void ApplyShaderCacheControl() {
+  if (!REXCVAR_GET(rr6_d3d12_no_shader_cache))
+    return;
+  auto *d3d = D3D12Device();
+  ID3D12Device9 *device9 = nullptr;
+  if (!d3d || FAILED(d3d->QueryInterface(IID_PPV_ARGS(&device9))) || !device9) {
+    RR6_WARN("[d3d12] shader cache control unavailable (no ID3D12Device9)");
+    return;
+  }
+  const HRESULT hr = device9->ShaderCacheControl(
+      D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CACHE_FOR_DRIVER |
+          D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_D3D_CONVERSIONS |
+          D3D12_SHADER_CACHE_KIND_FLAG_IMPLICIT_DRIVER_MANAGED,
+      D3D12_SHADER_CACHE_CONTROL_FLAG_DISABLE);
+  device9->Release();
+  if (FAILED(hr))
+    RR6_WARN("[d3d12] disabling the shader caches failed (0x{:08X}); "
+             "developer mode is required",
+             u32(hr));
+  else
+    RR6_INFO("[d3d12] shader caches disabled: pipelines compile cold");
 }
 
 void InstallDebugMessageLogger() {

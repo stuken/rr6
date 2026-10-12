@@ -86,6 +86,15 @@ GuestVertexDeclaration *CreateVertexDeclaration(GuestVertexElement *elements) {
   const u64 hash = XXH3_64bits(normalized.data(),
                                element_count * sizeof(GuestVertexElement));
 
+  // A declaration is a pure function of its elements, so identical ones share
+  // a host object. Pipelines key on that pointer, so this is also what lets a
+  // precached pipeline match every draw using the same layout.
+  {
+    std::lock_guard<std::mutex> lock(g_declByHashMutex);
+    if (auto it = g_declByHash.find(hash); it != g_declByHash.end())
+      return it->second;
+  }
+
   auto *decl = HostResourceHeap::Alloc<GuestVertexDeclaration>();
   if (!decl) {
     RR6_ERROR("CreateVertexDeclaration: HostResourceHeap::Alloc failed "

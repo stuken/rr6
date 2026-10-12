@@ -13,7 +13,7 @@ Reference implementation: `D:\reblue` (v1.3.1). SDK: rexglue 0.10.0 (both projec
 | 2. Build integration | **Done.** `rr6_shader_cache` (OBJECT library) builds from `default.xex`. Nothing links it yet. The `src/CMakeLists.txt` and `rr6_common` restructure is deferred to Phase 4, where the sources first appear. |
 | 3. D3D identification | **Done for the hook set.** `config/d3d.toml` names 75 functions and is included from `rr6_manifest.toml`. Scratch codegen applies all 75 with no warnings. The device layout is in that file's header. `scripts/re/funcdb.py` queries the codegen output. Render-state names are open (see below). |
 | 4. Native renderer | **Milestone 4 done.** With `-DRR6_NATIVE_GPU=ON` the game plays from boot through the menus into a race, and the race scene, car select and course intro match the xenos plugin (verified against real hardware). The car's dynamic environment reflections are still missing. `OFF` still builds and runs the xenos plugin. |
-| 5 | Not started |
+| 5. Hardening and performance | **In progress.** Perf counters, display-locked frame pacing and the pipeline precache are done (see Phase 5 below). Vulkan and the other platforms are open. |
 
 ### Phase 4, milestone 1 (what exists)
 
@@ -197,7 +197,7 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
      - the Blue Dragon settings, whose consumers were BD hooks rr6 doesn't have: `rr6_msaa`, `rr6_post_quality`, `rr6_reflection_quality`, `rr6_ntsc_filter`, `rr6_dof_strength`, `rr6_shadow_dimension`, `rr6_shadow_distance` and `rr6_fov_offset`, along with the quality presets built on them;
      - `rr6_aspect_ratio`, whose modes relied on BD's reprojection. rr6 now always fits the guest's 16:9 into the window with bars;
      - `rr6_scene_color_r11g11b10`: it has no alpha, and the sun probe writes the scene's alpha;
-     - `rr6_pso_precache`: the precache is a stub;
+     - `rr6_pso_precache`: the precache was a stub then. Phase 5 brought it back as a real cvar;
      - the dead design-canvas helpers in `Output`.
      - Old config files that still name removed settings load fine; unknown keys are ignored.
    - **Supersampling:** `rr6_supersampling=2` doubles the resolution scale (up to 8x; 1440 × 8 stays inside D3D12's 16384 limit). That is 6x at 2160p, and it still reaches the race at the same pace as 1x on the 8060S. Present's blit (`gamma_correction_ps`) now area-filters when it shrinks by more than 2:1, averaging up to 4×4 bilinear taps across each output pixel's footprint. At 2:1 and below it is still one tap.
@@ -214,6 +214,39 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
    - Boot → Harborline race → pause → Menu → World Xplorer → second race: 1038 texture mirrors dropped by frees and 84 by `Destroy`. Both races render the same as with eviction disabled.
    - A temporary check found no stale mirrors even with eviction off: RR6 reloads a course byte-identically at the same addresses. A different course in the same heap is the case this protects against; it frees host memory either way.
    - `rr6_log_destroy=true` logs every destroy and every free that drops mirrors.
+
+### Phase 5 (in progress)
+
+1. **Perf counters** (`gpu/perf_stats.*`):
+   - **Interval report:** `rr6_perf_stats=N` logs, every N presents:
+     - the present-to-present distribution (average, p50, p99, max, and how many frames ran over 17.5 and 34 ms);
+     - per counter, its count, time per frame, worst time and bytes. The counters are pipeline builds, runtime shader links, texture mirror builds, texel and buffer hashing, buffer uploads, draws, the fence wait and the pacing sleep.
+   - **Long frames:** each frame over 50 ms is logged with its present number.
+   - **Vblank clock:** a thread timestamps the display's vblanks (`D3DKMTWaitForVerticalBlankEvent`), so the report gives refreshes per displayed frame. DXGI frame statistics read zero while DWM composes the window, and `IDXGIOutput::WaitForVBlank` returns at once on this machine. The clock stops with `STATUS_GRAPHICS_PRESENT_OCCLUDED` while the desktop is locked or off.
+   - **Cold compiles:** `rr6_d3d12_no_shader_cache` turns off the driver and runtime shader caches for the process (Windows developer mode only), so pipelines compile cold.
+2. **Baseline** (1x, two races, 60 fps cap): the renderer is cheap.
+   - **Race CPU:** about 1.3 ms of draw dispatch per frame, of which 0.3 ms is buffer rehashing (6 MiB per frame) and 0.03 ms texel hashing.
+   - **GPU:** the fence wait is zero.
+   - **Idle time:** about 14 ms of each frame is spent sleeping.
+   - **Not worth doing:** `Lock`/`Unlock` as a dirty signal.
+   - **Load frames (120–313 ms):** these are the game's own loading. No renderer counter comes close in those frames.
+3. **Frame pacing:**
+   - **The problem:** the 60 fps cap slept with `sleep_until`, which wakes up to about 1.4 ms late (p99 18 ms, about 10% of frames over 17.5 ms). On the 120 Hz test display, any wake-up that straddles a vblank moves a frame by one refresh, which judders.
+   - **Display-locked pacing:** with vsync on, and a refresh rate within 1 Hz of a whole multiple (up to 4) of the cap, the swap chain now waits that many vblanks per frame. plume `rr6` gained `D3D12SwapChain::vsyncInterval`. Every frame then stays on screen for the same number of refreshes. The sleep pacer stays as a 0.9× safety cap for a window whose presents stop blocking (minimized or occluded).
+   - **Other cases:** they sleep on a high-resolution waitable timer, then spin the last 0.7 ms.
+   - **Result (desktop occluded):** the p99 fell from 18.0 to 17.4 ms, and fewer than 1% of frames run over 17.5 ms.
+   - **Still to check with the display on:** the refresh-per-frame histogram, and the eye test.
+4. **Pipeline precache:**
+   - **Cold cost:** a cold pipeline compile takes 10–22 ms, and two races need 110. Without the driver cache, those added 95–360 ms frames at race start and a 169 ms one mid-race.
+   - **Compiled-in list:** `gpu/pipeline/cache/pipeline_state_cache.h` holds the 110 pipelines. Each entry carries the shaders' and the declaration's content hashes in its pointer fields, and the device depth format is folded to `D32_FLOAT_S8_UINT`.
+   - **Replay:** `ReplayBootCache` resolves each entry once its shaders and declaration exist, then compiles it on up to 4 background threads. All 110 are done 467 ms after boot, because every shader and declaration exists by then.
+   - **Sharing:** identical shaders (244 containers, 176 distinct) and identical declarations now share one host object. Pipelines key on those pointers.
+   - **Checked cold:**
+     - no draw compiles a pipeline;
+     - the cold-only hitches are gone, and the long frames match a warm run's;
+     - frames are unchanged.
+   - **Extending the list:** run with `rr6_pso_capture=true`. That writes the compiled-in list, plus every pipeline a draw still compiled, to `<cache>/pipeline_state_cache.h`. Copy it over the source one. `rr6_devmode` logs each such pipeline. Coverage so far is boot, menus, World Xplorer, car select and two Harborline races, so other courses, the attract demo and the movies may add entries.
+5. **Open:** the Vulkan backend (the precache already passes the spec constant per pipeline), Linux and macOS.
 
 ### Phase 3 findings
 

@@ -88,10 +88,13 @@ GuestTexture *HostSurface(PPCContext &ctx, u8 *base, u32 surface) {
   SurfaceDesc desc{};
   if (!GuestSurfaceDesc(ctx, base, surface, desc))
     return nullptr;
-  // The host surface is the guest size times the resolution scale.
-  const u32 scale = rr6::gpu::Output::ResolutionScale();
+  // The host surface is the guest size times its scale.
+  const u32 scale =
+      rr6::gpu::Output::SurfaceScale(u32(desc.Width), u32(desc.Height));
   GuestTexture *host = rr6::gpu::SurfaceRegistry::Get(
       u32(desc.Width) * scale, u32(desc.Height) * scale, desc.Format, 1);
+  if (host)
+    host->hostScale = scale;
   std::lock_guard lock(g_mutex);
   g_surfaces[surface] = host;
   return host;

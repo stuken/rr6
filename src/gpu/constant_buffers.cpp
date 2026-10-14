@@ -328,15 +328,9 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
     s.shared.texture3DIndices[i] = rr6::gpu::kNullTexture3DDescriptorIndex;
     s.shared.textureCubeIndices[i] = rr6::gpu::kNullTextureCubeDescriptorIndex;
 
-    rr6::gpu::GuestTexture *tex = vs.textures[i];
-    if (tex && tex->sourceSurface && tex->sourceSurface->texture &&
-        tex->sourceSurface->sampleCount == plume::RenderSampleCount::COUNT_1 &&
-        tex->sourceSurface != vs.render_target &&
-        tex->sourceSurface != vs.depth_stencil &&
-        tex->sourceSurface->descriptorIndex !=
-            rr6::gpu::kInvalidDescriptorIndex) {
-      tex = tex->sourceSurface;
-    }
+    rr6::gpu::GuestTexture *tex =
+        vs.scale_copies[i] ? vs.scale_copies[i]
+                           : rr6::gpu::SampledTextureLocked(vs, vs.textures[i]);
     if (tex && tex->descriptorIndex != rr6::gpu::kInvalidDescriptorIndex) {
       switch (tex->viewDimension) {
       case plume::RenderTextureViewDimension::TEXTURE_3D:
@@ -451,7 +445,7 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
     s.shared.ndcScaleY = y_window ? -2.0f / vh : 1.0f;
     s.shared.ndcOffsetY = y_window ? 1.0f + 2.0f * vs.viewport.y / vh : 0.0f;
     // The viewport is in guest pixels; a host pixel is 1/scale of one.
-    const float scale = float(Output::ResolutionScale());
+    const float scale = float(rr6::gpu::TargetScaleLocked(vs));
     if (s.nudgeX != 0.0f && vw > 0.0f)
       s.shared.ndcOffsetX += 2.0f * s.nudgeX / (scale * vw);
     if (s.nudgeY != 0.0f && vh > 0.0f)
@@ -465,7 +459,7 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
   // pixel in and left the 3x frame's left and top host pixels at the clear
   // colour. The VS snaps such vertices onto the edge.
   {
-    const bool scaled = Output::ResolutionScale() > 1;
+    const bool scaled = rr6::gpu::TargetScaleLocked(vs) > 1;
     s.shared.edgeSnapX = scaled && vs.viewport.width > 0.0f
                              ? 1.0f / vs.viewport.width
                              : 0.0f;

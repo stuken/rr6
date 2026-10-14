@@ -188,7 +188,7 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
    - Shaders need no other changes:
      - none of RR6's 176 reads its pixel position (`svPosRegister`);
      - every `tfetch` offset is zero;
-     - blur steps come from game constants in UV space, so they cover the same screen distance at any scale;
+     - blur steps come from game constants in UV space, so they cover the same screen distance at any scale. They don't cover it continuously, though: see the glow below;
      - the half-pixel and window-coordinate (`VTE`) constants are computed from the guest viewport, so they stay in guest pixels.
    - Checked at 2x against 1x: boot, title, menus, World Xplorer, car select, course intro and the Harborline race all match when downscaled (mean difference under 1 outside race timing). The Pac-Man intro has no seams, and every resolve target comes out at twice its size. 3x (auto at 2160p) reaches the race at the same pace as 1x.
    - **Edge snap (white border at 3x and above):** the full-screen stretch into the 1280x720 post chain is pre-offset by about a quarter guest pixel (NDC −1.0004/+1.0007). After the half-pixel shift its left and top edges sit at guest 0.244. The guest tests coverage at guest pixel centres, so on hardware the outer column is covered, and at 2x the first host pixel centre (0.25) still is. At 3x (0.167) and above it isn't, so the outer host pixels kept the white clear colour, and later passes smeared it to 2 px. Every recompiled VS now ends with `SNAP_TO_VIEWPORT_EDGES(oPos)`, which moves a vertex less than half a guest pixel inside a viewport edge onto the edge (`g_EdgeSnap`, `c29.xy`, zero at 1x). Checked at 3x and 4x: race and menu edges match 1x and xenos, the Pac-Man intro has no seams, and 1x is pixel-identical.
@@ -204,6 +204,16 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
    - **MSAA:** skipped and removed. RR6 requests none (`msaa=0` on the scene target), and resolution scaling covers anti-aliasing.
    - Frame dumps are written at the scaled size, so comparisons against xenos dumps need `--rr6_resolution_scale=1`.
    - Verified in game at scale: the sun visibility probe on Highland Cliffs and the nitrous blur.
+   - **Glow banding at scale:** RR6's glow works in three steps:
+     1. It bright-passes the 1280x720 frame into a 320x180 buffer with one bilinear tap (`ps_82065A78`).
+     2. It blurs that buffer twice with an 8-tap separable kernel (`ps_82064AD8`, horizontal `vs_82065E80`, vertical `vs_82066388`). The taps sit at `uv ± Offset[i] * param.z`, game constants sized for 320 texels, and each bilinear tap spans about one texel, which fills the gaps between taps.
+     3. It adds the result back onto the frame (`ps_82065D28`).
+     
+     Scaled to 960x540 at 3x, each tap spanned a third of the gap. The blur broke into separate shifted copies of each bright object: stair-step bands about 5 host pixels wide, and comb stripes around lights.
+     
+     Fix: surfaces and resolve targets now carry a per-texture `hostScale`. `Output::SurfaceScale` keeps 320x180 targets at 1x; every 320x180 target in all past traces is this glow chain. Viewports, scissors, resolve rects, point nudges and edge snap use the bound target's scale (`TargetScaleLocked`). A draw into a lower-scale target that samples a scaled texture gets a box-filtered copy at its own scale (`BuildGuestScaleCopiesLocked`), so the bright pass reads a 1280x720 frame as on hardware. Checked at 3x: the glow buffer is 320x180 and the stripes are gone.
+     
+     Still open, and parked: some banding remains visible at 3x. One suspect is the 12x bilinear upscale of the 320x180 glow, which leaves a 12-pixel grid of slope changes. The other is the 8-bit back buffer, whose quantization steps get wider with scale; the fix would be a 16-bit UNORM back buffer with a dithered present.
 5. **Lifetime:** done (`hooks/resource.cpp`).
    - `D3DResource_Destroy` (called by `D3DResource_Release` and the device's unbinding at refcount zero) drops the mirror by `Common` type (bits 16-18):
      - vertex and index buffers: `EvictGuestBuffer`, keyed by the data base at `+12`;

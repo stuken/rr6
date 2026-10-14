@@ -127,6 +127,14 @@ u32 Output::ResolutionScale() {
   return scale;
 }
 
+u32 Output::SurfaceScale(u32 guest_width, u32 guest_height) {
+  constexpr u32 kGlowWidth = u32(kDesignCanvasWidth) / 4;
+  constexpr u32 kGlowHeight = u32(kDesignCanvasHeight) / 4;
+  if (guest_width == kGlowWidth && guest_height == kGlowHeight)
+    return 1;
+  return ResolutionScale();
+}
+
 double Output::RenderAspect() {
   u32 w = 0, h = 0;
   if (RenderSize(w, h) && h)

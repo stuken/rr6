@@ -172,6 +172,7 @@ bool CreateBackBufferTexture(VideoState &s, GuestTexture *bb, u32 w, u32 h) {
   bb->framebuffers.clear();
   bb->width = w;
   bb->height = h;
+  bb->hostScale = Output::ResolutionScale();
   bb->format = plume::RenderFormat::B8G8R8A8_UNORM;
   bb->mipLevels = 1;
   bb->viewDimension = plume::RenderTextureViewDimension::TEXTURE_2D;

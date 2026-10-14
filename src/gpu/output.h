@@ -41,6 +41,13 @@ public:
   // surfaces already created keep it.
   static u32 ResolutionScale();
 
+  // The scale of one guest surface or resolve target: ResolutionScale(), but
+  // 1 for RR6's 320x180 glow buffer. Its 8-tap blurs step by game constants
+  // sized for 320 texels and rely on each bilinear tap spanning a whole
+  // texel, so a scaled buffer leaves gaps between the taps and the glow
+  // breaks into bands. Every 320x180 target RR6 binds is that glow chain.
+  static u32 SurfaceScale(u32 guest_width, u32 guest_height);
+
   // The render rect's own ratio: 16:9, give or take the multiple-of-8
   // rounding of the fit.
   static double RenderAspect();

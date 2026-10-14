@@ -404,6 +404,7 @@ bool CopySurfaceRegionLocked(VideoState &s, GuestTexture *src, GuestTexture *dst
                              const plume::RenderRect *src_rect, u32 dst_x,
                              u32 dst_y) {
   if (src->format != dst->format || dst->resolveScale != 1.0f ||
+      src->hostScale != dst->hostScale ||
       src->sampleCount != plume::RenderSampleCount::COUNT_1 ||
       dst->sampleCount != plume::RenderSampleCount::COUNT_1)
     return false;
@@ -469,17 +470,17 @@ void Video::ResolveRtToTexture(GuestTexture *dst,
   if (!src || src == dst || !src->texture)
     return;
 
-  // The guest's rect and point are in guest pixels, the host surfaces are
-  // scaled by the resolution scale.
-  const i32 scale = i32(Output::ResolutionScale());
+  // The guest's rect and point are in guest pixels, and each host surface is
+  // scaled by its own host scale.
+  const i32 src_scale = i32(src->hostScale);
   plume::RenderRect scaled_rect;
   if (src_rect) {
-    scaled_rect = {src_rect->left * scale, src_rect->top * scale,
-                   src_rect->right * scale, src_rect->bottom * scale};
+    scaled_rect = {src_rect->left * src_scale, src_rect->top * src_scale,
+                   src_rect->right * src_scale, src_rect->bottom * src_scale};
     src_rect = &scaled_rect;
   }
-  dst_x *= u32(scale);
-  dst_y *= u32(scale);
+  dst_x *= dst->hostScale;
+  dst_y *= dst->hostScale;
 
   // A sub-rectangle (or an offset destination) that is not simply the whole
   // surface onto the whole texture.
@@ -515,6 +516,115 @@ void Video::ResolveRtToTexture(GuestTexture *dst,
     s.last_resolved_dst = dst;
     NoteTileContentLocked(s, dst);
     DetachSourceSurfaceLocked(s, dst);
+  }
+}
+
+u32 TargetScaleLocked(VideoState &s) {
+  GuestTexture *rt = nullptr;
+  GuestTexture *ds = nullptr;
+  ResolveEffectiveTargets(s, rt, ds);
+  if (rt)
+    return rt->hostScale;
+  if (ds)
+    return ds->hostScale;
+  return Output::ResolutionScale();
+}
+
+GuestTexture *SampledTextureLocked(const VideoState &s, GuestTexture *tex) {
+  GuestTexture *src = tex ? tex->sourceSurface : nullptr;
+  if (src && src->texture &&
+      src->sampleCount == plume::RenderSampleCount::COUNT_1 &&
+      src != s.render_target && src != s.depth_stencil &&
+      src->descriptorIndex != kInvalidDescriptorIndex)
+    return src;
+  return tex;
+}
+
+namespace {
+
+// A render-target texture of `like`'s format at w x h, for the guest scale
+// copy. Never resized: a texture's size is fixed for its lifetime.
+std::unique_ptr<GuestTexture> CreateGuestScaleCopy(VideoState &s,
+                                                   const GuestTexture *like,
+                                                   u32 w, u32 h,
+                                                   u32 host_scale) {
+  auto copy = std::make_unique<GuestTexture>(ResourceType::Texture);
+  plume::RenderTextureDesc desc;
+  desc.dimension = plume::RenderTextureDimension::TEXTURE_2D;
+  desc.width = w;
+  desc.height = h;
+  desc.depth = 1;
+  desc.mipLevels = 1;
+  desc.arraySize = 1;
+  desc.format = like->format;
+  desc.flags = plume::RenderTextureFlag::RENDER_TARGET;
+  desc.committed = false;
+  copy->textureHolder =
+      CreateHostTexture(s.device.get(), desc, "guest-scale-copy");
+  copy->texture = copy->textureHolder.get();
+  if (!copy->texture)
+    return nullptr;
+  plume::RenderTextureViewDesc view_desc;
+  view_desc.format = like->format;
+  view_desc.dimension = plume::RenderTextureViewDimension::TEXTURE_2D;
+  view_desc.mipLevels = 1;
+  copy->textureView = copy->texture->createTextureView(view_desc);
+  copy->width = w;
+  copy->height = h;
+  copy->depth = 1;
+  copy->format = like->format;
+  copy->guestFormat = like->guestFormat;
+  copy->viewDimension = plume::RenderTextureViewDimension::TEXTURE_2D;
+  copy->hostScale = host_scale;
+  BindTextureSRVLocked(s, copy.get());
+  if (copy->descriptorIndex == kInvalidDescriptorIndex)
+    return nullptr;
+  return copy;
+}
+
+} // namespace
+
+// A pass into a lower-scale target than the textures it samples must see them
+// at its own resolution, as the guest does. RR6's glow (Output::SurfaceScale)
+// bright-passes the 1280x720 frame into its 320x180 buffer with one bilinear
+// tap; reading the scaled frame directly, that tap would cover a fraction of
+// its 4x4 guest texels and alias. So the frame is box-filtered to 1280x720
+// first, and the tap reads that.
+void BuildGuestScaleCopiesLocked(VideoState &s) {
+  const u32 target_scale = TargetScaleLocked(s);
+  for (u32 i = 0; i < 16; ++i) {
+    s.scale_copies[i] = nullptr;
+    GuestTexture *tex = s.textures[i];
+    if (!tex || !tex->texture || tex->hostScale <= target_scale ||
+        tex->viewDimension != plume::RenderTextureViewDimension::TEXTURE_2D ||
+        tex->mipLevels > 1 || !IsRenderTargetCapable(tex->format) ||
+        tex->width % tex->hostScale || tex->height % tex->hostScale)
+      continue;
+    // A texture bound to several slots is copied once.
+    for (u32 j = 0; j < i && !s.scale_copies[i]; ++j) {
+      if (s.textures[j] == tex)
+        s.scale_copies[i] = s.scale_copies[j];
+    }
+    if (s.scale_copies[i])
+      continue;
+    GuestTexture *src = SampledTextureLocked(s, tex);
+    if (!src->texture || src->sampleCount != plume::RenderSampleCount::COUNT_1)
+      continue;
+    const u32 w = tex->width / tex->hostScale * target_scale;
+    const u32 h = tex->height / tex->hostScale * target_scale;
+    if (!tex->guestScaleCopy) {
+      tex->guestScaleCopy = CreateGuestScaleCopy(s, tex, w, h, target_scale);
+      if (!tex->guestScaleCopy) {
+        RR6_WARN_FIRST(4, "guest scale copy {}x{} fmt={} could not be created",
+                       w, h, static_cast<int>(tex->format));
+        continue;
+      }
+    }
+    GuestTexture *copy = tex->guestScaleCopy.get();
+    if (copy->width != w || copy->height != h)
+      continue;
+    if (CopySurfaceToTextureLocked(s, src, copy, "GuestScaleCopy"))
+      s.scale_copies[i] = copy;
   }
 }
 

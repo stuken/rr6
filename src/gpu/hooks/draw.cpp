@@ -378,14 +378,14 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const DrawArgs &args) {
                                    args.baseVertexIndex, 0);
   } else if (static_cast<xe::PrimitiveType>(primitive_type) ==
                  xe::PrimitiveType::kPointList &&
-             rr6::gpu::Output::ResolutionScale() > 1) {
+             rr6::gpu::TargetScaleLocked(s) > 1) {
     // A one-pixel guest point covers scale x scale host pixels. Host points
     // are one pixel, so draw the list once per host pixel of the block, each
     // pass moved onto that pixel's centre. RR6's only point draw is the sun
     // visibility count: 64 additive points summing the probe into one pixel
     // that the glow reads back bilinearly, so every host pixel of the block
     // needs the full sum.
-    const u32 scale = rr6::gpu::Output::ResolutionScale();
+    const u32 scale = rr6::gpu::TargetScaleLocked(s);
     const float centre = 0.5f * float(scale) - 0.5f;
     for (u32 y = 0; y < scale; ++y) {
       for (u32 x = 0; x < scale; ++x) {

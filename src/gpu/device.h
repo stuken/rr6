@@ -448,6 +448,9 @@ struct VideoState {
   GuestTexture *fullscreen_chain_head = nullptr;
 
   GuestTexture *textures[16] = {};
+  // Per slot, for the draw being recorded: the copy of textures[i] at the
+  // target's scale, or null to sample the texture itself.
+  GuestTexture *scale_copies[16] = {};
   GuestShader *vertex_shader = nullptr;
   GuestShader *pixel_shader = nullptr;
   GuestVertexDeclaration *vertex_declaration = nullptr;
@@ -526,5 +529,15 @@ bool DiagShouldLog(u64 site, const GuestTexture *t, u32 *n_out);
 void DestroyResourceNow(u32 guest_va, ResourceType type);
 void ParkTextureGPUObjects(GuestTexture *tex);
 plume::RenderColor ArgbToRenderColor(u32 argb);
+// The host scale of the target the next draw renders into: its colour target,
+// else its depth target (ResolveEffectiveTargets).
+u32 TargetScaleLocked(VideoState &s);
+// What a draw samples for the texture in a slot: the resolve source while the
+// resolve into the texture is still an alias, else the texture itself.
+GuestTexture *SampledTextureLocked(const VideoState &s, GuestTexture *tex);
+// Box-filters each bound texture with a higher scale than the draw's target
+// down to the target's scale, into scale_copies. Records copies, so it runs
+// before the draw framebuffer is bound.
+void BuildGuestScaleCopiesLocked(VideoState &s);
 
 } // namespace rr6::gpu

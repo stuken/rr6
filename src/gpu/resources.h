@@ -58,6 +58,12 @@ struct GuestTexture {
   GuestTexture *sourceSurface = nullptr;
   std::unordered_set<GuestTexture *> destinationTextures;
   float resolveScale = 1.0f;
+  // Host texels per guest texel: Output::SurfaceScale for surfaces and
+  // resolve targets, the resolution scale for the back buffer, 1 for mirrors.
+  u32 hostScale = 1;
+  // This texture box-filtered down to a lower-scale target's resolution, for
+  // draws into that target (BuildGuestScaleCopiesLocked).
+  std::unique_ptr<GuestTexture> guestScaleCopy;
   u32 resolveLevel = 0;
   u32 resolveFace = 0;
   bool registered = false;

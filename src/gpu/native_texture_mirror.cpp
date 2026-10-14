@@ -772,10 +772,10 @@ GuestTexture *GetOrCreateResolveTarget(u32 guest_va,
   if (!ReadFetch(guest_va, fetch) ||
       fetch.type != xe::FetchConstantType::kTexture)
     return nullptr;
-  // Resolves copy host surfaces, which are the guest size times the
-  // resolution scale, so the destination is scaled the same way. Shaders
-  // sample it by normalized coordinates and never see the difference.
-  const u32 scale = Output::ResolutionScale();
+  // Resolves copy host surfaces, which are the guest size times their scale,
+  // so the destination is scaled the same way. Shaders sample it by
+  // normalized coordinates and never see the difference.
+  const u32 scale = Output::SurfaceScale(FetchWidth(fetch), FetchHeight(fetch));
   const u32 width = FetchWidth(fetch) * scale;
   const u32 height = FetchHeight(fetch) * scale;
   if (!width || !height)
@@ -832,6 +832,7 @@ GuestTexture *GetOrCreateResolveTarget(u32 guest_va,
   tex->mipLevels = 1;
   tex->format = format;
   tex->guestFormat = u32(fetch.format);
+  tex->hostScale = scale;
   Video::BindTextureSRV(tex.get());
   slot = std::move(tex);
   {

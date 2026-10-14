@@ -195,9 +195,8 @@ void Video::SetDefaultViewport(D3DDevice *device, GuestTexture *surface) {
 
   auto &s = state();
 
-  // Guest units: the host surface is the guest size times the resolution
-  // scale.
-  const float scale = static_cast<float>(Output::ResolutionScale());
+  // Guest units: the host surface is the guest size times its scale.
+  const float scale = static_cast<float>(surface->hostScale);
   const float fwidth = static_cast<float>(surface->width) / scale;
   const float fheight = static_cast<float>(surface->height) / scale;
 
@@ -227,8 +226,9 @@ void Video::FlushViewport() {
     return;
 
   // s.viewport and s.scissor are in guest pixels. The host surfaces are those
-  // times the resolution scale, so both are scaled here and nowhere else.
-  const u32 scale = Output::ResolutionScale();
+  // times their scale, so both are scaled here, by the target's, and nowhere
+  // else.
+  const u32 scale = TargetScaleLocked(s);
   if (s.dirtyStates.viewport) {
     plume::RenderViewport vp = s.viewport;
     vp.x *= float(scale);

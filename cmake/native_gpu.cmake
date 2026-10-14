@@ -41,6 +41,11 @@ if(RR6_VULKAN_EXE)
 endif()
 set(RR6_NATIVE_TARGETS ${RR6_D3D12_TARGETS} ${RR6_VULKAN_TARGETS})
 
+# Linux picks X11 or Wayland at runtime, so plume builds its surface through
+# the SDL3 window the SDK already owns (rexglue.cmake has imported SDL3 by now).
+if(LINUX)
+    set(PLUME_SDL_VULKAN_ENABLED ON CACHE BOOL "" FORCE)
+endif()
 add_subdirectory(thirdparty/plume EXCLUDE_FROM_ALL)
 include(cmake/shaders.cmake)
 

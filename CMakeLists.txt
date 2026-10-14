@@ -12,9 +12,11 @@ include(CMakeDependentOption)
 # OFF keeps the SDK's xenos GPU plugin (Xenia-style emulation). ON replaces the
 # guest D3D library with the native plume renderer and the recompiled shader
 # cache. Hooks bind at link time, so this is a build switch, not a cvar.
+# Windows builds D3D12 and Vulkan exes, Linux the Vulkan one; macOS is not
+# ported yet.
 cmake_dependent_option(RR6_NATIVE_GPU
     "Native plume renderer with recompiled shaders (OFF = SDK xenos plugin)"
-    OFF "WIN32" OFF)
+    OFF "WIN32 OR LINUX" OFF)
 
 set(REXGLUE_RECOMP_DEBUG_INFO "full")
 include(generated/rexglue.cmake)
@@ -101,4 +103,18 @@ else()
     rexglue_setup_target(rr6 GPU_PLUGINS xenos)
     # Resolve-target dumps comparable with the native renderer's frame dumps.
     target_sources(rr6 PRIVATE src/platform/xenos_resolve_dump.cpp)
+endif()
+
+# The SDK stages its shared runtime libraries next to the exe on Windows only,
+# and nothing populates the $ORIGIN rpath it sets on Linux, so librexruntime
+# (and libTracyClient in a profiled build) would link but fail to load.
+if(UNIX AND NOT APPLE)
+    foreach(lib IN ITEMS rex::runtime rex::TracyClient)
+        if(TARGET ${lib})
+            add_custom_command(TARGET rr6 POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_FILE:${lib}> $<TARGET_FILE_DIR:rr6>
+                VERBATIM)
+        endif()
+    endforeach()
 endif()

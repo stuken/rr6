@@ -59,10 +59,10 @@ clang --version
 
 ### 2. Build and install the ReXGlue SDK
 
-rr6 needs SDK version 0.10.0. It is developed against the `port/xenia-sep-2026-zpd` branch of [stuken/rexglue-sdk](https://github.com/stuken/rexglue-sdk), which adds GPU, kernel and XAM fixes on top of upstream.
+rr6 needs SDK version 0.10.0. It is developed against the `main` branch of [stuken/rexglue-sdk](https://github.com/stuken/rexglue-sdk), which adds GPU, kernel and XAM fixes on top of upstream.
 
 ```bat
-git clone --recursive -b port/xenia-sep-2026-zpd https://github.com/stuken/rexglue-sdk.git
+git clone --recursive https://github.com/stuken/rexglue-sdk.git
 cd rexglue-sdk
 cmake --preset win-amd64
 cmake --build out/build/win-amd64 --config RelWithDebInfo --target install
@@ -185,7 +185,7 @@ sudo apt install clang-20 lld-20 cmake ninja-build build-essential git git-lfs \
   libcurl4-openssl-dev autoconf zip unzip curl python3-venv
 
 # SDK
-git clone --recursive -b port/xenia-sep-2026-zpd https://github.com/stuken/rexglue-sdk.git
+git clone --recursive https://github.com/stuken/rexglue-sdk.git
 cd rexglue-sdk
 cmake --preset linux-amd64
 cmake --build out/build/linux-amd64 --config RelWithDebInfo --target install
@@ -216,6 +216,10 @@ On Linux the `rr6` executable is the Vulkan backend. Its window and surface come
 | `scripts/` | Shader extraction, icon generation, and `re/funcdb.py` for querying the codegen output. |
 | `tools/prelink_shader_cache.cpp` | `rr6_prelink`, which links the recompiled shaders ahead of time for D3D12. |
 | `thirdparty/` | plume, XenosRecomp (on a `rr6` branch with the XDK 2.0.2135 container support), miniz, zstd. |
+
+## License
+
+rr6's own code is under the [BSD Zero Clause License](LICENSE): use it for anything, with no conditions. The code ported from re:Blue stays under re:Blue's BSD 3-Clause License ([licenses/reblue-BSD-3-Clause.txt](licenses/reblue-BSD-3-Clause.txt)), as its file headers say. The submodules and `thirdparty/` keep their own licenses. No license here covers Ridge Racer 6 itself.
 
 ## Credits
 

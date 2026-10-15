@@ -84,7 +84,6 @@ struct GuestTexture {
       framebuffers;
   u32 mappedMemory = 0;
   std::unique_ptr<GuestTexture> companion2D;
-  std::unique_ptr<GuestTexture> companionCube;
 
   GuestTexture() = default;
   explicit GuestTexture(ResourceType t) : type(t) {}
@@ -125,7 +124,7 @@ struct GuestShader {
   std::unique_ptr<plume::RenderShader> shader;
   const ShaderCacheEntry *shaderCacheEntry = nullptr;
   // Spec constant shaders link a distinct RenderShader per masked
-  // g_SpecConstants() value. 'shader' above is the mask-0 / hcg-HLSL variant.
+  // g_SpecConstants() value. 'shader' above is the mask-0 variant.
   std::unordered_map<u32, std::unique_ptr<plume::RenderShader>> linkedShaders;
 
   GuestShader() = default;
@@ -196,7 +195,7 @@ u32 ComputeTexturePitch(const GuestTexture *tex);
 
 GuestShader *CreateShader(const be_u32 *function, ResourceType type);
 
-// Mask-0 cache / hcg-HLSL shaders return GuestShader::shader directly, and
+// Mask-0 cache shaders return GuestShader::shader directly, and
 // spec constant ones are DXC-linked per masked value into linkedShaders.
 // nullptr on failure.
 plume::RenderShader *GetOrLinkShader(GuestShader *shader, u32 specConstants);

@@ -154,11 +154,9 @@ bool DiagShouldLog(u64 site, const GuestTexture *t, u32 *n_out) {
 
 namespace {
 
-// The dims BD believes its backbuffer has, which the implicit RT[0]
+// The dims the guest believes its back buffer has, which the implicit RT[0]
 // placeholder and the default viewport must use rather than the raw swapchain
-// dims: this size defines full-screen for the posteff chain seeding, and a
-// swap-sized backbuffer on a non-16:9 output matches none of BD's fit-sized
-// composite RTs.
+// dims: this size defines full screen for the post chain seeding.
 void GuestBackBufferDims(u32 &w, u32 &h) {
   // rr6: the guest renders at its own 1280x720 (viewports, scissors and
   // shaders all assume it). The host back buffer is that times the
@@ -418,9 +416,9 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
     return false;
   }
 
-  // Implicit back buffer placeholder. BD draws post-bloom menu/UI without ever
-  // calling SetRenderTarget (RT[0] is implicitly the back buffer on X360), so
-  // BindDrawFramebuffer falls back to s.back_buffer_surface for such draws.
+  // Implicit back buffer placeholder. RT[0] is implicitly the back buffer on
+  // X360, so a draw issued before any SetRenderTarget falls back to
+  // s.back_buffer_surface in BindDrawFramebuffer.
   {
     auto *bb = rr6::gpu::HostResourceHeap::Alloc<rr6::gpu::GuestTexture>(
         rr6::gpu::ResourceType::RenderTarget);
@@ -449,7 +447,7 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
 
     s.back_buffer_surface = bb;
   }
-  // Default viewport = the BD-believed backbuffer, not the raw swapchain.
+  // Default viewport = the guest's 1280x720 back buffer, not the swapchain.
   // In guest units, like every viewport: FlushViewport applies the scale.
   s.viewport.width = kDesignCanvasWidth;
   s.viewport.height = kDesignCanvasHeight;

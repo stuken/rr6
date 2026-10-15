@@ -172,7 +172,7 @@ GuestShader *CreateShader(const be_u32 *function, ResourceType type) {
 plume::RenderShader *GetOrLinkShader(GuestShader *gs, u32 specConstants) {
   if (!gs)
     return nullptr;
-  // hcg*ShaderCreateByHlsl path: shader populated directly, no cache entry.
+  // Mask 0: the shader built at creation.
   if (gs->shader)
     return gs->shader.get();
   const ShaderCacheEntry *entry = gs->shaderCacheEntry;

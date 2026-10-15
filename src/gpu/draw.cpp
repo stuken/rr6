@@ -32,7 +32,7 @@ namespace {
 // render-state setters write (src/gpu/d3d.h, config/d3d.toml). Each setter
 // inserts its raw D3D value into the register field, so the fields decode
 // with the same D3DCMP / D3DSTENCILOP / D3DCULL / D3DBLEND converters reblue
-// uses for Blue Dragon's own state cache.
+// uses.
 //   RB_DEPTHCONTROL: STENCIL_ENABLE[0] Z_ENABLE[1] Z_WRITE_ENABLE[2]
 //     ZFUNC[6:4] BACKFACE_ENABLE[7] STENCILFUNC[10:8] STENCILFAIL[13:11]
 //     STENCILZPASS[16:14] STENCILZFAIL[19:17] and the _BF copies above.
@@ -220,9 +220,8 @@ bool Video::FlushRenderStateLocked(u32 device_guest) {
   }
 
   // RB_DEPTHCONTROL + RB_BLENDCONTROL0 + RB_STENCILREFMASK + the color control
-  // alpha enable bit. BD inlines its render state writes at LTCG-eligible sites
-  // and routes the rest through bdSetRenderState's dispatch table, so the
-  // register shadow merges both.
+  // alpha enable bit, from the register shadows RR6's render-state setters
+  // write.
   ReadDeviceRenderState(s, device_guest);
   // BindDrawFramebufferLocked has already flushed; pick up a guest viewport.
   FlushViewport();

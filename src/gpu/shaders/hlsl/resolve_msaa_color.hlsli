@@ -19,7 +19,7 @@ float4 main(in float4 position : SV_Position, in float2 texCoord : TEXCOORD) : S
         result += tex.Load(coord, i);
     result /= SAMPLE_COUNT;
     // Param0 = the X360 resolve exponent-bias scale (2^bias). Must be applied
-    // exactly as copy_color_ps does, or BD's HDR scene (bias=-2, x0.25) stays
-    // 4x too bright and the posteff blows the frame white. Force alpha=1.
+    // exactly as copy_color_ps does, or an exponent-biased HDR resolve comes
+    // out the wrong brightness. Force alpha=1.
     return float4(result.rgb * g_PushConstants.Param0, 1.0);
 }

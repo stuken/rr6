@@ -125,8 +125,8 @@ plume::RenderSamplerDesc DecodeFromFetch(const u32 fc[6]) {
   d.mipmapMode = IsNearest(fetch.mip_filter) ? plume::RenderMipmapMode::NEAREST
                                              : plume::RenderMipmapMode::LINEAR;
 
-  // Anisotropy is off by default, as BD's fetch constant sets aniso_filter to
-  // 0. rr6_anisotropy opts in, and only when every filter is already LINEAR:
+  // The guest's fetch constants leave aniso_filter off. rr6_anisotropy opts
+  // in, and only when every filter is already LINEAR:
   // D3D12_FILTER_ANISOTROPIC hardcodes LINEAR min/mag, so enabling aniso on a
   // POINT sampler silently upgrades it to bilinear on D3D12 but not on Vulkan.
   const i32 aniso = Settings::Get().Anisotropy();

@@ -93,8 +93,6 @@ void ParkTextureGPUObjects(GuestTexture *tex) {
   }
   if (tex->companion2D)
     ParkTextureGPUObjects(tex->companion2D.get());
-  if (tex->companionCube)
-    ParkTextureGPUObjects(tex->companionCube.get());
   if (tex->guestScaleCopy)
     ParkTextureGPUObjects(tex->guestScaleCopy.get());
   if (tex->fxaaCopy)
@@ -195,9 +193,6 @@ void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead) {
   ReleaseTextureSRVLocked(s, dead);
   if (dead->companion2D) {
     ReleaseTextureSRVLocked(s, dead->companion2D.get());
-  }
-  if (dead->companionCube) {
-    ReleaseTextureSRVLocked(s, dead->companionCube.get());
   }
   // The copy is a render target too: its framebuffers and SRV go with it.
   if (dead->guestScaleCopy)

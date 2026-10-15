@@ -17,17 +17,18 @@
 namespace rr6::gpu {
 
 // Full guest D3DFMT words. The Alt spellings are alternate encodings of the
-// same format that BD also emits.
+// same format.
 enum class D3DFormat : u32 {
   kA16B16G16R16F = 0x1A22AB60,
   kA16B16G16R16FAlt = 0x1A2201BF,
   kA8B8G8R8 = 0x1A200186,
   kA8R8G8B8 = 0x18280186,
   kX8R8G8B8 = 0x28280086,
-  kBD8888 = 0x28280106,
-  kBD8888Alt = 0x28280186,
-  kBD2101010As16161616 = 0x182801B6,
-  // BD also reaches ConvertGuestFormat with the raw GPUTEXTUREFORMAT byte.
+  k8888 = 0x28280106,
+  // RR6's back buffer.
+  k8888Alt = 0x28280186,
+  k2101010As16161616 = 0x182801B6,
+  // ConvertGuestFormat can also be handed the raw GPUTEXTUREFORMAT byte.
   kBare2101010As16161616 =
       u32(rex::graphics::xenos::TextureFormat::k_2_10_10_10_AS_16_16_16_16),
   kD24FS8 = 0x1A220197,
@@ -50,7 +51,7 @@ enum class D3DCull : u32 {
 };
 
 // X360 D3DFILLMODE. D3DFILL_POINT (1) is omitted: no backend plume targets can
-// express point fill, and BD never asks for it.
+// express point fill, and RR6 never asks for it.
 enum class D3DFillMode : u32 {
   kSolid = 0,
   kWireframe = 0x25,
@@ -120,7 +121,7 @@ inline bool IsDepthFormat(plume::RenderFormat format) {
 // bytes.
 bool BCFormatFromGuestByte(u32 guest_format, plume::RenderFormat &out);
 
-// BD's blend/depth/stencil words are Xenos register fields, so these take
+// The guest's blend/depth/stencil words are Xenos register fields, so these take
 // xenos::BlendFactor, BlendOp, CompareFunction and StencilOp raw.
 plume::RenderBlend ConvertBlendMode(u32 value);
 plume::RenderBlendOperation ConvertBlendOp(u32 value);

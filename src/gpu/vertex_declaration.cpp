@@ -75,9 +75,9 @@ GuestVertexDeclaration *CreateVertexDeclaration(GuestVertexElement *elements) {
   }
 
   // The guest D3DDevice_CreateVertexDeclaration treats the caller's
-  // element array as const, only reading ->Stream and memcpy'ing it, and BD
-  // passes some decls from read-only .rdata (the CRI/Sofdec movie quad decl at
-  // word_82069D80), so normalizing padding in place AVs. Zero the padding in a
+  // element array as const, only reading ->Stream and memcpy'ing it, and a
+  // game can pass decls from read-only .rdata, so normalizing padding in place
+  // AVs. Zero the padding in a
   // local copy and hash that for a stable cache key.
   std::vector<GuestVertexElement> normalized(elements,
                                              elements + element_count + 1);

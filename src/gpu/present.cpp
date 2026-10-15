@@ -323,7 +323,6 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt,
   s.command_list->setScissors(
       plume::RenderRect(off_x, off_y, off_x + static_cast<i32>(fit_w),
                         off_y + static_cast<i32>(fit_h)));
-  constexpr float kPresentGamma = 1.0f;
   // The guest's D3DDevice_Initialize queues a gamma update, and its first Swap
   // programs the display controller with D3D's default ramp corrected for the
   // display VdGetCurrentDisplayGamma reports (BT.709 HDTV):
@@ -337,8 +336,8 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt,
     u32 descriptor_index_2;
     float gamma;
     float display_correction;
-  } pc{gamma_src_desc, 0, s.guest_gamma * kPresentGamma,
-       display_correction};
+  // Gamma 1: D3D's ramp is linear before the display correction.
+  } pc{gamma_src_desc, 0, 1.0f, display_correction};
   s.command_list->setGraphicsPushConstants(kCopyPushConstantRangeIndex, &pc,
                                            kCopyPushConstantByteOffset,
                                            sizeof(pc));

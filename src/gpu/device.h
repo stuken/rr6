@@ -206,8 +206,8 @@ public:
   // still hold a setVertexBuffers/setIndexBuffer reference to it.
   static void ParkBufferUntilFence(std::unique_ptr<plume::RenderBuffer> buffer);
 
-  // ALPHAREF feeds the SharedConstants cbuffer. Set by bdSetRenderState (arg
-  // 100), and read when SharedConstants is rebuilt.
+  // ALPHAREF feeds the SharedConstants cbuffer. Set from the device's
+  // RB_ALPHA_REF shadow on each draw, and read when SharedConstants is rebuilt.
   static void SetAlphaThreshold(float value);
   static float AlphaThreshold();
   static void SetAlphaTestFunc(u32 func);
@@ -327,11 +327,6 @@ struct VideoState {
   std::unique_ptr<plume::RenderPipeline> copy_color_pipeline;
   std::unique_ptr<plume::RenderPipeline> gamma_correction_pipeline;
   std::unique_ptr<plume::RenderShader> gamma_correction_ps;
-  // Exponent of the guest's scanout gamma ramp, applied at present. BD (where
-  // this renderer comes from) uploads x^0.5; RR6 leaves the ramp linear, and
-  // the xenos plugin shows its front buffer as is.
-  float guest_gamma = 1.0f;
-
   // Per slot, so a pipelined frame cannot clobber an in-flight copy.
   std::unique_ptr<plume::RenderShader> occlusion_count_ps;
   // Vulkan stand-in for the D3D12 root UAV (main layout set 4). Unconditional
@@ -444,9 +439,8 @@ struct VideoState {
   GuestTexture *render_target = nullptr;
   GuestTexture *depth_stencil = nullptr;
 
-  // Allocated in Direct3D_CreateDevice and held for device lifetime. BD binds
-  // its own HDR intermediates as RT[0], so this is only a Present fallback for
-  // when nothing has been drawn yet.
+  // Allocated in Direct3D_CreateDevice and held for device lifetime: the host
+  // texture behind the guest's default back buffer, which Present shows.
   GuestTexture *back_buffer_surface = nullptr;
 
   GuestTexture *last_drawn_rt = nullptr;

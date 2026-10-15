@@ -94,8 +94,9 @@ UploadState &upload_state() {
   return s;
 }
 
-// g_ShadowPcfScale only feeds Blue Dragon's shadow kernel rewrite, which the
-// rr6 recompiler build leaves out, so it stays at its identity.
+// g_ShadowPcfScale is part of the shared-constant layout XenosRecomp emits but
+// no RR6 shader reads it (the recompiler's shadow kernel rewrite is off under
+// RR6_RECOMP), so it stays at its identity.
 void RecomputeShadowPcfScale(UploadState &s) { s.shadowPcfScale = 1.0f; }
 
 bool CreateChunk(UploadChunk &chunk) {
@@ -163,12 +164,13 @@ ConstantAllocation Allocate(UploadState &s, u32 size, u32 alignment) {
 }
 
 // kFlushNaN=true also flushes NaN -> +0 in the same pass. Xenos float ALU obeys
-// the X360/D3D9 "multiply by zero yields zero" rule (0*NaN=0), so BD's
-// degenerate constants (e.g. the bloom/glare 0/0 weight normalization when
-// intensity is zero) are harmless on hardware. Our recompiled D3D12 shaders use
-// strict IEEE (NaN*0=NaN), so a NaN constant propagates and blackens the
-// post-fx composite. No BD shader reinterprets a float constant register as
-// int, so the flush cannot corrupt int-encoded data. Branchless (cmov) and
+// the X360/D3D9 "multiply by zero yields zero" rule (0*NaN=0), so a guest's
+// degenerate constants (e.g. a 0/0 weight normalization when an effect's
+// intensity is zero) are harmless on hardware. The recompiled host shaders use
+// strict IEEE (NaN*0=NaN), so a NaN constant would propagate through a
+// composite. No RR6 shader reads a float constant register as an integer
+// (asuint only appears in the shared vertex fetch helpers), so the flush cannot
+// corrupt int-encoded data. Branchless (cmov) and
 // fused into the byte swap so it adds no extra memory pass.
 template <bool kFlushNaN>
 void CopyByteSwap32Impl(u8 *dst, u32 guest_va, u32 size) {
@@ -252,27 +254,6 @@ void ResetFrame(u32 slot) {
 
 void InvalidateSharedBinding() { upload_state().sharedBound = false; }
 
-// c50.xy is BD's NDC->UV half-scale (0.5 on hw). bd_blur_ps reconstructs its
-// sample UV as uv = c50.xy*(ndc+1), so it MUST be 0.5. The guest derives it
-// from sceneDim/1280x720*0.5, letting output res and supersampling leak in, and
-// the pass oversamples until the source collapses into the top-left. bd_blur_ps
-// is the ONLY pixel shader reading c50 as this screen->UV scale (verified
-// across all 17 c50-using PS). The rest own c50 as material data, so a blanket
-// pin would corrupt them (bd_lightshaft_ps's g_vLightShaftDiffuse -> gray
-// god rays). bdCameraRefractionUvScaleHook pins device reg50 at the
-// bdCameraRender writers, and this catches blur draws those writers miss.
-constexpr u32 kScreenUVScaleRegByteOffset = 50 * 16;
-constexpr u64 kBDBlurPSHash = 0xD94E164866C3B9BCull;
-void PinScreenUVScaleReg(u8 *block) {
-  auto *ps = rr6::gpu::state().pipelineState.pixelShader;
-  const u64 h = (ps && ps->shaderCacheEntry) ? ps->shaderCacheEntry->hash : 0;
-  if (h == kBDBlurPSHash) {
-    auto *reg = reinterpret_cast<float *>(block + kScreenUVScaleRegByteOffset);
-    reg[0] = 0.5f;
-    reg[1] = 0.5f;
-  }
-}
-
 // RR6 renders the race at 1440x800 and resolves it into the 1280x720 frame
 // with four bilinear taps (ps_82060208) in a rotated-grid pattern:
 // sampling_point01/23 (c0, c1) are UV offsets at 1/16, 3/16, 5/16 and 7/16 of
@@ -332,7 +313,6 @@ ConstantAllocation UploadPixelShaderConstants(u32 device_guest) {
   CopyByteSwap32FlushNaN(alloc.memory,
                          device_guest + offsetof(D3DDevice, psFloatConstants),
                          kConstantBlockBytes);
-  PinScreenUVScaleReg(alloc.memory);
   FitResolvePatternToHostPixel(alloc.memory);
   return alloc;
 }
@@ -352,12 +332,11 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
   // must miss the per-slot cache so stale sampler indices are re-resolved.
   const i32 aniso_now = Settings::Get().Anisotropy();
 
-  // vs.textures is authoritative: our SetTexture hook replaces BD's recompiled
-  // body, so the engine's per-slot bound-texture shadow (device+0x2FF0+slot*4)
-  // and GPU texture fetch constants (device+0x400+slot*0x18) are never written.
-  // Video::SetTexture mirrors Xenos semantics (a null bind is ignored, since on
-  // hardware it does not rebuild the fetch constant), so vs.textures holds the
-  // last real texture per slot, exactly what the GPU would still be sampling.
+  // vs.textures is authoritative: draws bind every device texture slot through
+  // Video::SetTexture, which mirrors Xenos semantics (a null bind is ignored,
+  // since on hardware it does not rebuild the fetch constant), so vs.textures
+  // holds the last real texture per slot, exactly what the GPU would still be
+  // sampling.
   auto &vs = rr6::gpu::state();
   const auto *device_p = rr6::mem::at<const D3DDevice>(device_guest);
   for (u32 i = 0; i < 16; ++i) {
@@ -387,13 +366,6 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
       case plume::RenderTextureViewDimension::UNKNOWN:
       default:
         s.shared.texture2DIndices[i] = tex->descriptorIndex;
-        // BD static reflection cubes bind as a 2D atlas yet the water/glass
-        // shader cube-fetches the slot, so publish the sliced TextureCube
-        // companion so tfetchCube resolves a real cube, not the null cube.
-        if (tex->companionCube && tex->companionCube->descriptorIndex !=
-                                      rr6::gpu::kInvalidDescriptorIndex) {
-          s.shared.textureCubeIndices[i] = tex->companionCube->descriptorIndex;
-        }
         break;
       }
 

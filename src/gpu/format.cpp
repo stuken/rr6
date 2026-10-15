@@ -191,10 +191,10 @@ plume::RenderFormat ConvertGuestFormat(u32 guest_format) {
   case D3DFormat::kA8B8G8R8:
   case D3DFormat::kA8R8G8B8:
   case D3DFormat::kX8R8G8B8:
-  case D3DFormat::kBD8888:
-  case D3DFormat::kBD8888Alt:
+  case D3DFormat::k8888:
+  case D3DFormat::k8888Alt:
     return plume::RenderFormat::R8G8B8A8_UNORM;
-  case D3DFormat::kBD2101010As16161616:
+  case D3DFormat::k2101010As16161616:
   case D3DFormat::kBare2101010As16161616:
     // X360 7e3 HDR EDRAM format. It must stay float: UNORM would clamp the
     // HDR scene the posteff chain relies on.
@@ -296,7 +296,7 @@ plume::RenderFormat ConvertDeclType(D3DDeclType type) {
     return plume::RenderFormat::R8G8B8A8_UINT;
   case D3DDeclType::kShort2:
     return plume::RenderFormat::R16G16_SINT;
-  // SHORT4 (non-normalized) binds as SNORM, not SINT: the recompiled BD
+  // SHORT4 (non-normalized) binds as SNORM, not SINT: the recompiled
   // shaders declare every SHORT4 input as float4, and an integer class IA
   // format against a float class shader input is a D3D12 contract violation.
   case D3DDeclType::kShort4:

@@ -22,8 +22,8 @@
 
 namespace rr6::gpu {
 
-// ALPHAREF mirror for SharedConstants. Set by the bdSetRenderState hook (arg
-// 100), and read when SharedConstants is rebuilt.
+// ALPHAREF mirror for SharedConstants. Set from the device's RB_ALPHA_REF
+// shadow on each draw, and read when SharedConstants is rebuilt.
 namespace {
 std::atomic<u32> g_alpha_threshold_bits{0};
 std::atomic<u32> g_alpha_test_func{6}; // GREATER_EQUAL
@@ -81,7 +81,7 @@ void Video::SetIndices(GuestBuffer *indices) {
     new_buffer = indices->bufferRef(0);
     new_size = indices->dataSize;
     // A GuestBuffer registered through a path that never read the X360
-    // Common field index format bit has none pinned. BD's default is 16-bit.
+    // Common field index format bit has none pinned. D3D's default is 16-bit.
     new_format = (indices->format == plume::RenderFormat::UNKNOWN)
                      ? plume::RenderFormat::R16_UINT
                      : indices->format;

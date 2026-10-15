@@ -32,8 +32,10 @@ void ResolveEffectiveTargets(VideoState &s, GuestTexture *&rt,
 plume::RenderFramebuffer *GetFramebuffer(VideoState &s, GuestTexture *rt,
                                          GuestTexture *ds);
 
+// smooth_upscale: B-spline filter instead of bilinear when dst is larger.
 bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
-                                GuestTexture *dst, const char *reason);
+                                GuestTexture *dst, const char *reason,
+                                bool smooth_upscale = false);
 bool MaterializeOutboundLocked(VideoState &s, GuestTexture *source,
                                bool aliasable_only = false);
 void MaterializeInboundLocked(VideoState &s, GuestTexture *dst);

@@ -23,9 +23,14 @@
 #include "core/profiling.h"
 
 #include "core/logging.h"
+#include "core/settings.h" // kCvarGroup
 #include "gpu/backend.h"
 #include "gpu/format.h"
 #include "gpu/output.h"
+
+REXCVAR_DEFINE_BOOL(rr6_scaled_post_filters, true, kCvarGroup,
+                    "At a resolution scale, fit the race resolve's taps to a "
+                    "host pixel and upscale the glow smoothly");
 
 namespace rr6::gpu {
 
@@ -63,7 +68,8 @@ void DetachSourceSurfaceLocked(VideoState &s, GuestTexture *texture) {
 }
 
 bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
-                                GuestTexture *dst, const char *reason) {
+                                GuestTexture *dst, const char *reason,
+                                bool smooth_upscale) {
   if (!dst || !dst->texture || !src || !src->texture || src == dst) {
     return false;
   }
@@ -241,7 +247,9 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
       float param0;
       float param1;
     } push{descriptor_index, 0u, depth_dst ? 1.0f : resolve_scale,
-           static_cast<float>(box_ratio)};
+           // copy_color_ps: a negative Param1 selects the B-spline upscale.
+           smooth_upscale && !depth_dst ? -1.0f
+                                        : static_cast<float>(box_ratio)};
     s.command_list->setGraphicsPushConstants(kCopyPushConstantRangeIndex, &push,
                                              kCopyPushConstantByteOffset,
                                              sizeof(push));
@@ -584,18 +592,27 @@ std::unique_ptr<GuestTexture> CreateGuestScaleCopy(VideoState &s,
 
 } // namespace
 
-// A pass into a lower-scale target than the textures it samples must see them
-// at its own resolution, as the guest does. RR6's glow (Output::SurfaceScale)
-// bright-passes the 1280x720 frame into its 320x180 buffer with one bilinear
-// tap; reading the scaled frame directly, that tap would cover a fraction of
-// its 4x4 guest texels and alias. So the frame is box-filtered to 1280x720
-// first, and the tap reads that.
+// A pass must see the textures it samples at its own target's scale, as the
+// guest does, wherever the two differ (Output::SurfaceScale keeps RR6's
+// 320x180 glow at 1x):
+// - Into a lower-scale target, a box-filtered copy. The glow bright-passes the
+//   1280x720 frame into its buffer with one bilinear tap; reading the scaled
+//   frame directly, that tap would cover a fraction of its 4x4 guest texels
+//   and alias.
+// - Into a higher-scale target, a B-spline upscale of a reduced-scale resolve
+//   target. The glow composite stretches the 320x180 glow over the frame:
+//   bilinear at 12x (3x scale) changes slope at every glow texel edge, 12
+//   pixels apart, which reads as bands. Upscaled smoothly to 960x540, the
+//   composite's own 4x stretch is then the guest's.
 void BuildGuestScaleCopiesLocked(VideoState &s) {
   const u32 target_scale = TargetScaleLocked(s);
   for (u32 i = 0; i < 16; ++i) {
     s.scale_copies[i] = nullptr;
     GuestTexture *tex = s.textures[i];
-    if (!tex || !tex->texture || tex->hostScale <= target_scale ||
+    if (!tex || !tex->texture || tex->hostScale == target_scale)
+      continue;
+    const bool down = tex->hostScale > target_scale;
+    if ((!down && (!tex->reducedScale || !REXCVAR_GET(rr6_scaled_post_filters))) ||
         tex->viewDimension != plume::RenderTextureViewDimension::TEXTURE_2D ||
         tex->mipLevels > 1 || !IsRenderTargetCapable(tex->format) ||
         tex->width % tex->hostScale || tex->height % tex->hostScale)
@@ -623,7 +640,9 @@ void BuildGuestScaleCopiesLocked(VideoState &s) {
     GuestTexture *copy = tex->guestScaleCopy.get();
     if (copy->width != w || copy->height != h)
       continue;
-    if (CopySurfaceToTextureLocked(s, src, copy, "GuestScaleCopy"))
+    if (CopySurfaceToTextureLocked(s, src, copy,
+                                   down ? "GuestScaleCopy" : "GuestScaleUpscale",
+                                   /*smooth_upscale=*/!down))
       s.scale_copies[i] = copy;
   }
 }

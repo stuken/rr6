@@ -86,6 +86,12 @@ void SanitizePipelineState(PipelineState &state) {
   if (state.renderTargetFormat == plume::RenderFormat::R16G16B16A16_FLOAT) {
     state.renderTargetFormat = Video::SceneColorFormat();
   }
+  // Only the back buffer and its resolves use either format, so a list
+  // recorded under one rr6_output_16bit setting serves the other.
+  if (state.renderTargetFormat == plume::RenderFormat::B8G8R8A8_UNORM ||
+      state.renderTargetFormat == plume::RenderFormat::R16G16B16A16_UNORM) {
+    state.renderTargetFormat = Video::BackBufferFormat();
+  }
 
   if (!plume::RenderFormatIsStencil(state.depthStencilFormat)) {
     state.stencilEnable = false;

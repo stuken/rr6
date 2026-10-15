@@ -14,6 +14,7 @@
 #include <vector>
 
 #include <plume_render_interface_builders.h>
+#include <rex/cvar.h>
 #include <rex/runtime.h>
 #include <rex/types.h>
 
@@ -26,6 +27,8 @@
 #include "gpu/settings.h"
 #include "gpu/shaders/shader_cache.h"
 #include "gpu/output.h"
+
+REXCVAR_DECLARE(bool, rr6_scaled_post_filters);
 
 #if defined(__x86_64__) || defined(_M_X64)
 #include <immintrin.h>
@@ -270,6 +273,40 @@ void PinScreenUVScaleReg(u8 *block) {
   }
 }
 
+// RR6 renders the race at 1440x800 and resolves it into the 1280x720 frame
+// with four bilinear taps (ps_82060208) in a rotated-grid pattern:
+// sampling_point01/23 (c0, c1) are UV offsets at 1/16, 3/16, 5/16 and 7/16 of
+// an output pixel. At a resolution scale the output pixel shrinks but the
+// offsets don't, so the taps spread over several host pixels and soften the
+// frame. Scaling the pattern about its centroid fits it to one host pixel
+// again. The centroid itself stays: it offsets the quarter-pixel shift the
+// guest gives the full-screen quad.
+constexpr u64 kRaceResolvePSHash = 0x799300B9E6D4210Bull;
+void FitResolvePatternToHostPixel(u8 *block) {
+  if (!REXCVAR_GET(rr6_scaled_post_filters))
+    return;
+  auto &vs = rr6::gpu::state();
+  auto *ps = vs.pipelineState.pixelShader;
+  if (!ps || !ps->shaderCacheEntry ||
+      ps->shaderCacheEntry->hash != kRaceResolvePSHash)
+    return;
+  const u32 scale = rr6::gpu::TargetScaleLocked(vs);
+  if (scale <= 1)
+    return;
+  // c0.xy, c0.zw, c1.xy, c1.zw: the four tap offsets.
+  auto *taps = reinterpret_cast<float *>(block);
+  for (u32 axis = 0; axis < 2; ++axis) {
+    float centroid = 0.0f;
+    for (u32 k = 0; k < 4; ++k)
+      centroid += taps[2 * k + axis];
+    centroid *= 0.25f;
+    for (u32 k = 0; k < 4; ++k) {
+      float &offset = taps[2 * k + axis];
+      offset = centroid + (offset - centroid) / float(scale);
+    }
+  }
+}
+
 ConstantAllocation UploadVertexShaderConstants(u32 device_guest) {
   RR6_CPU_ZONE("UploadVSConstants");
   auto &s = upload_state();
@@ -296,6 +333,7 @@ ConstantAllocation UploadPixelShaderConstants(u32 device_guest) {
                          device_guest + offsetof(D3DDevice, psFloatConstants),
                          kConstantBlockBytes);
   PinScreenUVScaleReg(alloc.memory);
+  FitResolvePatternToHostPixel(alloc.memory);
   return alloc;
 }
 

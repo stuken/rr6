@@ -43,5 +43,15 @@ float4 main(in float4 position : SV_Position, in float2 texCoord : TEXCOORD) : S
     float3 corrected = lerp(lin * 4.5, 1.099 * pow(lin, 0.45) - 0.099,
                             step(0.018, lin));
     sampled.rgb = lerp(ramp, corrected, g_PushConstants.Param1);
+    // The swapchain is 8 bits per channel; under rr6_output_16bit the source
+    // carries more. A 4x4 ordered dither under half a step turns the rounding
+    // into fine noise instead of contour bands, and leaves a value that is
+    // already a whole 8-bit step (all of an 8-bit source) unchanged.
+    static const float kBayer4[16] = {
+        0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0,
+        3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 };
+    uint2 cell = uint2(position.xy) & 3u;
+    float dither = (kBayer4[cell.y * 4u + cell.x] + 0.5) / 16.0 - 0.5;
+    sampled.rgb += dither / 255.0;
     return float4(sampled.rgb, 1.0);
 }

@@ -833,6 +833,7 @@ GuestTexture *GetOrCreateResolveTarget(u32 guest_va,
   tex->format = format;
   tex->guestFormat = u32(fetch.format);
   tex->hostScale = scale;
+  tex->reducedScale = scale < Output::ResolutionScale();
   Video::BindTextureSRV(tex.get());
   slot = std::move(tex);
   {

@@ -152,6 +152,10 @@ public:
 
   static plume::RenderFormat SceneColorFormat();
 
+  // The guest back buffer's host format: R16G16B16A16_UNORM under
+  // rr6_output_16bit, else B8G8R8A8_UNORM.
+  static plume::RenderFormat BackBufferFormat();
+
   struct VideoMemory {
     u64 used = 0;
     u64 budget = 0;
@@ -369,6 +373,7 @@ struct VideoState {
       plume::RenderFormat::D32_FLOAT_S8_UINT;
   plume::RenderFormat scene_color_format =
       plume::RenderFormat::R16G16B16A16_FLOAT;
+  plume::RenderFormat back_buffer_format = plume::RenderFormat::B8G8R8A8_UNORM;
 
   // Slots 0..2 are valid null Texture2D/3D/Cube descriptors, and real
   // allocation starts after kNullTextureDescriptorCount.

@@ -185,6 +185,18 @@ void TraceDraw(const char *path, const D3DDevice &dev, u32 prim, u32 count) {
            float(dev.viewportScaleOffset[5]), tex);
 }
 
+// The PS constants of a full-screen pass, where post grading and filter taps
+// live.
+void TracePixelConstants(const D3DDevice &dev) {
+  std::string consts;
+  for (u32 c : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 32u, 33u, 34u}) {
+    const auto &v = dev.psFloatConstants[c];
+    consts += std::format(" c{}=({:.6g},{:.6g},{:.6g},{:.6g})", c, float(v[0]),
+                          float(v[1]), float(v[2]), float(v[3]));
+  }
+  RR6_INFO("[trace]   ps consts{}", consts);
+}
+
 // Binds host mirrors of the device's vertex streams and index buffer.
 void BindGuestGeometry(const D3DDevice &dev, bool indexed) {
   for (u32 i = 0; i < 16; ++i) {
@@ -280,15 +292,8 @@ void DispatchDraw(u32 device_guest, u32 primitive_type, const DrawArgs &args) {
     TraceDraw(args.indexed ? "DrawIndexed" : "Draw", *dev, primitive_type,
               args.vertexOrIndexCount);
     // Full-screen passes: their PS constants (post grading lives there).
-    if (!args.indexed && args.vertexOrIndexCount <= 6) {
-      std::string consts;
-      for (u32 c : {0u, 1u, 2u, 3u, 4u, 5u, 6u, 32u, 33u, 34u}) {
-        const auto &v = dev->psFloatConstants[c];
-        consts += std::format(" c{}=({:.3f},{:.3f},{:.3f},{:.3f})", c,
-                              float(v[0]), float(v[1]), float(v[2]), float(v[3]));
-      }
-      RR6_INFO("[trace]   ps consts{}", consts);
-    }
+    if (!args.indexed && args.vertexOrIndexCount <= 6)
+      TracePixelConstants(*dev);
     // The first few scene draws: every non-zero VS/PS float constant below
     // c64, enough to sanity-check lighting and fog parameters.
     static u32 s_dumped_frame = 0, s_dumped = 0;
@@ -498,6 +503,7 @@ void FlushPendingUP() {
           verts += std::format("{}{:.4f}", i % (p.stride / 4) ? "," : " | ",
                                float(f[i]));
         RR6_INFO("[trace]   verts{}", verts);
+        TracePixelConstants(*dev);
       }
     }
     BindGuestTextures(*dev);

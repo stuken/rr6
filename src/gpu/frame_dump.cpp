@@ -85,6 +85,7 @@ bool DumpTexture(VideoState &s, GuestTexture *rt,
     bpp = 4;
     break;
   case plume::RenderFormat::R16G16B16A16_FLOAT:
+  case plume::RenderFormat::R16G16B16A16_UNORM:
     bpp = 8;
     break;
   default:
@@ -129,7 +130,14 @@ bool DumpTexture(VideoState &s, GuestTexture *rt,
     const u8 *row = src + size_t(y) * row_pixels * bpp;
     u8 *out = bgra.data() + size_t(y) * width * 4;
     for (u32 x = 0; x < width; ++x, out += 4) {
-      if (bpp == 8) {
+      if (rt->format == plume::RenderFormat::R16G16B16A16_UNORM) {
+        u16 h[4];
+        std::memcpy(h, row + x * 8, 8);
+        out[0] = ToByte(h[2] / 65535.0f);
+        out[1] = ToByte(h[1] / 65535.0f);
+        out[2] = ToByte(h[0] / 65535.0f);
+        out[3] = ToByte(h[3] / 65535.0f);
+      } else if (bpp == 8) {
         u16 h[4];
         std::memcpy(h, row + x * 8, 8);
         out[0] = ToByte(HalfToFloat(h[2]));

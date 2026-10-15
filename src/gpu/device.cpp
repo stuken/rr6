@@ -53,6 +53,10 @@
 REXCVAR_DEFINE_BOOL(rr6_baked_depth_bias, false, kCvarGroup,
                     "Bake the polygon offset into pipelines even where the "
                     "device takes it per draw (tests the older-runtime path)");
+REXCVAR_DEFINE_BOOL(rr6_output_16bit, true, kCvarGroup,
+                    "Keep the game's back buffer at 16 bits per channel and "
+                    "dither at present, instead of the console's 8 bits. "
+                    "Takes effect after a restart.");
 
 namespace plume {
 #if defined(RR6_D3D12)
@@ -173,7 +177,7 @@ bool CreateBackBufferTexture(VideoState &s, GuestTexture *bb, u32 w, u32 h) {
   bb->width = w;
   bb->height = h;
   bb->hostScale = Output::ResolutionScale();
-  bb->format = plume::RenderFormat::B8G8R8A8_UNORM;
+  bb->format = s.back_buffer_format;
   bb->mipLevels = 1;
   bb->viewDimension = plume::RenderTextureViewDimension::TEXTURE_2D;
   bb->layout = plume::RenderTextureLayout::UNKNOWN;
@@ -315,6 +319,15 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
     // RGBA16F, never R11G11B10: RR6's sun visibility probe writes the scene's
     // alpha channel and reads it back through a resolve.
     s.scene_color_format = plume::RenderFormat::R16G16B16A16_FLOAT;
+    // The guest's back buffer is 8:8:8:8, and every post pass after the HDR
+    // scene (tonemap, glow composite, grading) rounds to 8 bits. At a
+    // resolution scale each rounding step spans more pixels and gradients
+    // band. 16-bit UNORM keeps the 0..1 clamp the guest's passes rely on
+    // (the glow composite saturates highlights); present dithers to 8 bits.
+    // Resolves of the back buffer take its format with it.
+    s.back_buffer_format = REXCVAR_GET(rr6_output_16bit)
+                               ? plume::RenderFormat::R16G16B16A16_UNORM
+                               : plume::RenderFormat::B8G8R8A8_UNORM;
     s.dynamic_depth_bias = s.device->getCapabilities().dynamicDepthBias &&
                            !REXCVAR_GET(rr6_baked_depth_bias);
 
@@ -352,6 +365,11 @@ bool Video::CreateHostDevice(rex::ui::Window *window) {
                                                 : "armed, no breadcrumb writes";
     caps += std::format(" | DRED {}", dred_state);
 #endif
+    caps += std::format(
+        " | output {}",
+        s.back_buffer_format == plume::RenderFormat::R16G16B16A16_UNORM
+            ? "RGBA16, dithered"
+            : "BGRA8");
     RR6_INFO("{}", caps);
 
     // kNumFrames + 1: a flip model swapchain needs one back buffer beyond the
@@ -873,6 +891,10 @@ plume::RenderFormat Video::DepthStencilFormat() {
 
 plume::RenderFormat Video::SceneColorFormat() {
   return state().scene_color_format;
+}
+
+plume::RenderFormat Video::BackBufferFormat() {
+  return state().back_buffer_format;
 }
 
 Video::VideoMemory Video::MemoryUsage() {

@@ -218,9 +218,13 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
         0, 0, static_cast<i32>(dst->width), static_cast<i32>(dst->height)));
     plume::RenderPipeline *pipeline = nullptr;
     if (src->sampleCount != plume::RenderSampleCount::COUNT_1) {
-      pipeline = GetOrCreateResolveMSAAPipeline(s, dst->format,
-                                                src->sampleCount, depth_dst);
-    } else if (depth_dst) {
+      // RR6 requests no MSAA, so every surface is single-sampled and there is
+      // no multisample resolve to run.
+      RR6_WARN_FIRST(4, "{}: multisampled source {}x{} not resolvable", reason,
+                     src->width, src->height);
+      return false;
+    }
+    if (depth_dst) {
       pipeline = GetOrCreateCopyDepthPipeline(s, dst->format);
     } else {
       pipeline = GetOrCreateResolvePipeline(s, dst->format,

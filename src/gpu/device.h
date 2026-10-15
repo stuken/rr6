@@ -350,13 +350,6 @@ struct VideoState {
   std::unique_ptr<plume::RenderShader> fxaa_ps;
   std::unique_ptr<plume::RenderShader> copy_depth_ps;
 
-  // Indexed by tier: [0]=2x, [1]=4x, [2]=8x.
-  std::unique_ptr<plume::RenderShader> resolve_msaa_color_ps[3];
-  std::unique_ptr<plume::RenderShader> resolve_msaa_depth_ps[3];
-  // Keyed by MsaaResolveKey(dst format, tier, depth).
-  std::unordered_map<u64, std::unique_ptr<plume::RenderPipeline>>
-      resolve_msaa_pipelines;
-
   // Keyed by destination RT format (resolve destinations often differ from the
   // back buffer). Built on demand by ResolveRtToTexture.
   std::unordered_map<plume::RenderFormat,
@@ -528,10 +521,6 @@ plume::RenderPipeline *GetOrCreateCopyDepthPipeline(VideoState &s,
 plume::RenderPipeline *GetOrCreateResolvePipeline(VideoState &s,
                                                   plume::RenderFormat format,
                                                   bool fxaa = false);
-plume::RenderPipeline *
-GetOrCreateResolveMSAAPipeline(VideoState &s, plume::RenderFormat dst_format,
-                               plume::RenderSampleCounts src_samples,
-                               bool depth);
 bool DiagShouldLog(u64 site, const GuestTexture *t, u32 *n_out);
 void DestroyResourceNow(u32 guest_va, ResourceType type);
 void ParkTextureGPUObjects(GuestTexture *tex);

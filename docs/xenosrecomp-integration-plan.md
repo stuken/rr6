@@ -201,7 +201,7 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
      - the dead design-canvas helpers in `Output`.
      - Old config files that still name removed settings load fine; unknown keys are ignored.
    - **Supersampling:** `rr6_supersampling=2` doubles the resolution scale (up to 8x; 1440 × 8 stays inside D3D12's 16384 limit). That is 6x at 2160p, and it still reaches the race at the same pace as 1x on the 8060S. Present's blit (`gamma_correction_ps`) now area-filters when it shrinks by more than 2:1, averaging up to 4×4 bilinear taps across each output pixel's footprint. At 2:1 and below it is still one tap.
-   - **MSAA:** skipped and removed. RR6 requests none (`msaa=0` on the scene target), and resolution scaling covers anti-aliasing.
+   - **MSAA:** skipped and removed. RR6 requests none (`msaa=0` on the scene target), and resolution scaling covers anti-aliasing. The MSAA resolve shaders and pipelines carried over from re:Blue are gone too; a multisampled source would now be refused with a warning.
    - Frame dumps are written at the scaled size, so comparisons against xenos dumps need `--rr6_resolution_scale=1`.
    - Verified in game at scale: the sun visibility probe on Highland Cliffs and the nitrous blur.
    - **Glow banding at scale:** RR6's glow works in three steps:

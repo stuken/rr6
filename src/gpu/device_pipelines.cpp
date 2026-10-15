@@ -27,12 +27,6 @@
 #include "src/gpu/shaders/hlsl/copy_vs.hlsl.dxil.h"
 #include "src/gpu/shaders/hlsl/gamma_correction_ps.hlsl.dxil.h"
 #include "src/gpu/shaders/hlsl/pfx_occlusion_count_ps.hlsl.dxil.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_color_2x.hlsl.dxil.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_color_4x.hlsl.dxil.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_color_8x.hlsl.dxil.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_depth_2x.hlsl.dxil.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_depth_4x.hlsl.dxil.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_depth_8x.hlsl.dxil.h"
 #else
 #include "src/gpu/shaders/hlsl/copy_color_ps.hlsl.spirv.h"
 #include "src/gpu/shaders/hlsl/fxaa_ps.hlsl.spirv.h"
@@ -40,12 +34,6 @@
 #include "src/gpu/shaders/hlsl/copy_vs.hlsl.spirv.h"
 #include "src/gpu/shaders/hlsl/gamma_correction_ps.hlsl.spirv.h"
 #include "src/gpu/shaders/hlsl/pfx_occlusion_count_ps.hlsl.spirv.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_color_2x.hlsl.spirv.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_color_4x.hlsl.spirv.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_color_8x.hlsl.spirv.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_depth_2x.hlsl.spirv.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_depth_4x.hlsl.spirv.h"
-#include "src/gpu/shaders/hlsl/resolve_msaa_depth_8x.hlsl.spirv.h"
 #endif
 
 namespace rr6::gpu {
@@ -256,25 +244,6 @@ bool BuildCopyPipeline(VideoState &s) {
     return false;
   }
 
-  s.resolve_msaa_color_ps[0] = s.device->createShader(
-      RR6_SHADER_BLOB(resolve_msaa_color_2x), "main", kHostShaderFormat);
-  s.resolve_msaa_color_ps[1] = s.device->createShader(
-      RR6_SHADER_BLOB(resolve_msaa_color_4x), "main", kHostShaderFormat);
-  s.resolve_msaa_color_ps[2] = s.device->createShader(
-      RR6_SHADER_BLOB(resolve_msaa_color_8x), "main", kHostShaderFormat);
-  s.resolve_msaa_depth_ps[0] = s.device->createShader(
-      RR6_SHADER_BLOB(resolve_msaa_depth_2x), "main", kHostShaderFormat);
-  s.resolve_msaa_depth_ps[1] = s.device->createShader(
-      RR6_SHADER_BLOB(resolve_msaa_depth_4x), "main", kHostShaderFormat);
-  s.resolve_msaa_depth_ps[2] = s.device->createShader(
-      RR6_SHADER_BLOB(resolve_msaa_depth_8x), "main", kHostShaderFormat);
-  for (int i = 0; i < 3; i++) {
-    if (!s.resolve_msaa_color_ps[i] || !s.resolve_msaa_depth_ps[i]) {
-      RR6_ERROR("Plume createShader for MSAA resolve helpers failed");
-      return false;
-    }
-  }
-
   plume::RenderGraphicsPipelineDesc pipe_desc;
   pipe_desc.pipelineLayout = s.pipeline_layout.get();
   pipe_desc.vertexShader = s.copy_vs.get();
@@ -369,69 +338,6 @@ plume::RenderPipeline *GetOrCreateResolvePipeline(VideoState &s,
     return nullptr;
   auto *raw = pipeline.get();
   pipelines.emplace(format, std::move(pipeline));
-  return raw;
-}
-
-// Sample count (a power-of-two bit) -> resolve shader tier index, or -1.
-namespace {
-int MsaaTierIndex(plume::RenderSampleCounts count) {
-  switch (count) {
-  case plume::RenderSampleCount::COUNT_2:
-    return 0;
-  case plume::RenderSampleCount::COUNT_4:
-    return 1;
-  case plume::RenderSampleCount::COUNT_8:
-    return 2;
-  default:
-    return -1;
-  }
-}
-} // namespace
-
-// Get-or-create the MSAA resolve pipeline for a (dst format, source sample
-// count, depth?) combination. Renders single-sample (the resolve output is
-// not multisampled), reading the MS source as a Texture2DMS SRV.
-plume::RenderPipeline *
-GetOrCreateResolveMSAAPipeline(VideoState &s, plume::RenderFormat dst_format,
-                               plume::RenderSampleCounts src_samples,
-                               bool depth) {
-  const int tier = MsaaTierIndex(src_samples);
-  if (tier < 0)
-    return nullptr;
-  const u64 key = (static_cast<u64>(dst_format) << 8) |
-                  (static_cast<u64>(tier) << 1) | (depth ? 1u : 0u);
-  auto it = s.resolve_msaa_pipelines.find(key);
-  if (it != s.resolve_msaa_pipelines.end())
-    return it->second.get();
-
-  plume::RenderGraphicsPipelineDesc desc;
-  desc.pipelineLayout = s.pipeline_layout.get();
-  desc.vertexShader = s.copy_vs.get();
-  desc.primitiveTopology = plume::RenderPrimitiveTopology::TRIANGLE_LIST;
-  desc.cullMode = plume::RenderCullMode::NONE;
-  if (depth) {
-    desc.pixelShader = s.resolve_msaa_depth_ps[tier].get();
-    desc.depthFunction = plume::RenderComparisonFunction::ALWAYS;
-    desc.depthEnabled = true;
-    desc.depthWriteEnabled = true;
-    desc.renderTargetCount = 0;
-    desc.depthTargetFormat = dst_format;
-  } else {
-    desc.pixelShader = s.resolve_msaa_color_ps[tier].get();
-    desc.depthFunction = plume::RenderComparisonFunction::ALWAYS;
-    desc.depthEnabled = false;
-    desc.depthWriteEnabled = false;
-    desc.renderTargetCount = 1;
-    desc.renderTargetFormat[0] = dst_format;
-    desc.renderTargetBlend[0] = plume::RenderBlendDesc::Copy();
-    desc.depthTargetFormat = plume::RenderFormat::UNKNOWN;
-  }
-  auto pipeline =
-      CreateHostGraphicsPipeline(s.device.get(), desc, "resolve-msaa");
-  if (!pipeline)
-    return nullptr;
-  auto *raw = pipeline.get();
-  s.resolve_msaa_pipelines.emplace(key, std::move(pipeline));
   return raw;
 }
 

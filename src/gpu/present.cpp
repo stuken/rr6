@@ -44,6 +44,10 @@
 
 REXCVAR_DEFINE_INT32(rr6_fps_limit, 60, kCvarGroup,
                      "Frame rate cap for presentation, 0 for none");
+REXCVAR_DEFINE_BOOL(rr6_display_correction, true, kCvarGroup,
+                    "Apply the console's HDTV display correction at present, "
+                    "as D3D programs it; off shows the raw frame (brighter "
+                    "mid-tones)");
 
 namespace rr6::gpu {
 
@@ -320,8 +324,13 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt,
       plume::RenderRect(off_x, off_y, off_x + static_cast<i32>(fit_w),
                         off_y + static_cast<i32>(fit_h)));
   constexpr float kPresentGamma = 1.0f;
-  // 0 = show the front buffer as xenia does, without the TV ramp reshaping.
-  constexpr float kPresentDisplayCorrection = 0.0f;
+  // The guest's D3DDevice_Initialize queues a gamma update, and its first Swap
+  // programs the display controller with D3D's default ramp corrected for the
+  // display VdGetCurrentDisplayGamma reports (BT.709 HDTV):
+  // Rec709_encode(sRGB_decode(x)). The native renderer runs neither, so
+  // present applies the same curve; RR6 never sets a ramp of its own.
+  const float display_correction =
+      REXCVAR_GET(rr6_display_correction) ? 1.0f : 0.0f;
   s.command_list->setPipeline(s.gamma_correction_pipeline.get());
   struct PresentPushConstants {
     u32 descriptor_index;
@@ -329,7 +338,7 @@ void RecordPresentPass(VideoState &s, GuestTexture *rt,
     float gamma;
     float display_correction;
   } pc{gamma_src_desc, 0, s.guest_gamma * kPresentGamma,
-       kPresentDisplayCorrection};
+       display_correction};
   s.command_list->setGraphicsPushConstants(kCopyPushConstantRangeIndex, &pc,
                                            kCopyPushConstantByteOffset,
                                            sizeof(pc));

@@ -33,11 +33,11 @@ float4 main(in float4 position : SV_Position, in float2 texCoord : TEXCOORD) : S
     }
     // max() guards pow() against NaN on negative HDR values (source RT may be R16F).
     float3 ramp = pow(max(sampled.rgb, 0.0), g_PushConstants.Param0);
-    // X360 scanout: the system reshapes the app ramp for the display before upload
-    // (D3D::GammaRampCorrected 0x8246F538): for display-gamma type 2 (TV) the
-    // hardware LUT is Rec709_encode(sRGB_decode(app_ramp)). Xenia measurably
-    // displays the UNCORRECTED front buffer (its DC LUT stays linear), so
-    // Param1 (display correction strength) blends between the two references.
+    // X360 scanout: D3D reshapes the ramp for the display before uploading it
+    // to the display controller (RR6: sub_8225EDD8): for display-gamma type 2
+    // (HDTV) the hardware LUT is Rec709_encode(sRGB_decode(ramp)), matching
+    // the guest's own table to within one 10-bit step. Param1 blends from the
+    // raw frame (0) to that corrected output (1, rr6_display_correction).
     float3 lin = lerp(ramp / 12.92, pow((ramp + 0.055) / 1.055, 2.4),
                       step(0.04045, ramp));
     float3 corrected = lerp(lin * 4.5, 1.099 * pow(lin, 0.45) - 0.099,

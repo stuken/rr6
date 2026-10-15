@@ -23,7 +23,7 @@ endif()
 
 if(RR6_VULKAN_EXE)
     add_executable(rr6_vk WIN32 ${RR6_SOURCES} ${RR6_ICON_RC})
-    target_sources(rr6_vk PRIVATE src/platform/input_script.cpp)
+    target_sources(rr6_vk PRIVATE src/game/lod.cpp src/platform/input_script.cpp)
     # The recompiled guest code never reads the backend, so both exes link the
     # rr6_recomp objects rexglue_setup_target made for rr6 instead of compiling
     # them a second time. The macro only adds them while this list is set.

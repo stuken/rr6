@@ -19,6 +19,7 @@
 #include <rex/cvar.h>
 #include <rex/graphics/xenos.h>
 #include <rex/hook.h>
+#include <rex/system/thread_state.h>
 #include <rex/types.h>
 
 #include <plume_render_interface.h>
@@ -137,6 +138,25 @@ void CountRenderTarget() {
   ++g_stats.draws_per_rt[key];
 }
 
+// The guest return addresses above a hook: lr (if non-zero) first, then the
+// back chain. Each frame's first word links to the caller's, and prologues
+// save LR at -8 from the caller's stack pointer.
+std::string GuestCallChain(u32 sp, u32 lr, u32 depth) {
+  std::string chain;
+  if (lr)
+    chain += std::format(" {:08X}", lr);
+  for (u32 i = 0; sp && i < depth; ++i) {
+    // The outermost frame links past the top of the stack: checked reads.
+    const auto *link = rr6::mem::try_at<const be_u32>(sp);
+    if (!link || !u32(*link))
+      break;
+    sp = u32(*link);
+    if (const auto *saved = rr6::mem::try_at<const be_u32>(sp - 8))
+      chain += std::format(" {:08X}", u32(*saved));
+  }
+  return chain;
+}
+
 // rr6_trace_frame=N logs every draw of present frame N.
 bool TracingThisFrame() {
   const i32 wanted = REXCVAR_GET(rr6_trace_frame);
@@ -162,6 +182,11 @@ void TraceDraw(const char *path, const D3DDevice &dev, u32 prim, u32 count) {
                        (u32(fc[3]) >> 1) & 0xFFF, (u32(fc[0]) >> 2) & 0xFF,
                        static_cast<i32>(u32(fc[3]) << 13) >> 26,
                        (u32(fc[5]) >> 9) & 3);
+  }
+  // The game code that issued the draw.
+  if (auto *ts = rex::runtime::ThreadState::Get(); ts && ts->context()) {
+    const PPCContext &ctx = *ts->context();
+    tex += " chain:" + GuestCallChain(ctx.r1.u32, u32(ctx.lr), 6);
   }
   RR6_INFO("[trace] {} prim={} n={} rt={}x{} vs={:016X} ps={:016X} "
            "blend={}:{:08X} depth={:08X} cull={:X} color={:X} aref={:.3f} "
@@ -609,19 +634,7 @@ REX_HOOK_RAW(D3DDevice_Resolve) {
       rect = std::format("{},{}-{},{}", u32(r[0]), u32(r[1]), u32(r[2]), u32(r[3]));
     if (const auto *p = rr6::mem::at<const be_u32>(ctx.r7.u32); p && ctx.r7.u32)
       point = std::format("{},{}", u32(p[0]), u32(p[1]));
-    // Guest back chain: each frame's first word links to the caller's, and
-    // prologues save LR at -8 from the caller's stack pointer.
-    std::string chain;
-    for (u32 sp = ctx.r1.u32, i = 0; sp && i < 6; ++i) {
-      // The outermost frame links past the top of the stack: checked reads.
-      const auto *link = rr6::mem::try_at<const be_u32>(sp);
-      if (!link || !u32(*link))
-        break;
-      sp = u32(*link);
-      if (const auto *saved = rr6::mem::try_at<const be_u32>(sp - 8))
-        chain += std::format(" {:08X}", u32(*saved));
-    }
-    point += " chain:" + chain;
+    point += " chain:" + GuestCallChain(ctx.r1.u32, 0, 6);
     const u32 surface_va = rr6::gpu::BoundRenderTargetVa();
     if (const auto *w = rr6::mem::at<const be_u32>(surface_va); w && surface_va)
       for (int i = 12; i < 15; ++i)

@@ -31,8 +31,8 @@ rr6 has two renderers. You pick one when you configure the build.
 
 The build has three stages:
 
-1. Build and install the ReXGlue SDK.
-2. Clone rr6 and add your game files.
+1. Clone rr6, which brings the ReXGlue SDK with it, and add your game files.
+2. Build and install the SDK.
 3. Configure, run codegen, and build.
 
 The first build takes a while. Codegen turns the whole executable into C++, and there is a lot of it to compile.
@@ -60,27 +60,14 @@ set "PATH=%VCINSTALLDIR%Tools\Llvm\x64\bin;%PATH%"
 clang --version
 ```
 
-### 2. Build and install the ReXGlue SDK
-
-rr6 needs SDK version 0.10.0. It is developed against the `main` branch of [stuken/rexglue-sdk](https://github.com/stuken/rexglue-sdk), which adds GPU, kernel and XAM fixes on top of upstream.
-
-```bat
-git clone --recursive https://github.com/stuken/rexglue-sdk.git
-cd rexglue-sdk
-cmake --preset win-amd64
-cmake --build out/build/win-amd64 --config RelWithDebInfo --target install
-```
-
-This installs the SDK to `rexglue-sdk\out\install\win-amd64`, which step 4 points rr6 at. The SDK uses a multi-config generator. Install each configuration you plan to build rr6 in: run the second command again with `--config Release` or `--config Debug`.
-
-### 3. Clone rr6 and add the game files
+### 2. Clone rr6 and add the game files
 
 ```bat
 git clone --recursive https://github.com/stuken/rr6.git
 cd rr6
 ```
 
-`--recursive` fetches `thirdparty/plume` and `thirdparty/XenosRecomp`. If you cloned without it, run:
+`--recursive` fetches the submodules: `thirdparty/rexglue-sdk`, `thirdparty/plume` and `thirdparty/XenosRecomp`, along with their own dependencies. The SDK's dependencies make this a large download. If you cloned without it, run:
 
 ```bat
 git submodule update --init --recursive
@@ -98,12 +85,27 @@ The build needs only `default.xex`, which feeds codegen, the shader cache and th
 
 Check your copy against these. A different `default.xex` will not recompile correctly against these configs.
 
-### 4. Configure, run codegen, and build
+### 3. Build and install the ReXGlue SDK
 
-Set `CMAKE_PREFIX_PATH` to the SDK install from step 2. Add `-DRR6_NATIVE_GPU=ON` for the native renderer, or leave it off for the xenos plugin.
+rr6 needs SDK version 0.10.0. It is developed against [stuken/rexglue-sdk](https://github.com/stuken/rexglue-sdk), which adds GPU, kernel and XAM fixes on top of upstream, and pins it as `thirdparty/rexglue-sdk`. From the rr6 folder:
 
 ```bat
-set REXSDK=C:\path\to\rexglue-sdk\out\install\win-amd64
+cd thirdparty\rexglue-sdk
+cmake --preset win-amd64
+cmake --build out/build/win-amd64 --config RelWithDebInfo --target install
+cd ..\..
+```
+
+This installs the SDK to `thirdparty\rexglue-sdk\out\install\win-amd64`, which step 4 points rr6 at. The SDK uses a multi-config generator. Install each configuration you plan to build rr6 in: run the build command again with `--config Release` or `--config Debug`.
+
+An SDK built elsewhere works too: point `CMAKE_PREFIX_PATH` at its install instead.
+
+### 4. Configure, run codegen, and build
+
+Set `CMAKE_PREFIX_PATH` to the SDK install from step 3. Add `-DRR6_NATIVE_GPU=ON` for the native renderer, or leave it off for the xenos plugin.
+
+```bat
+set REXSDK=%CD%\thirdparty\rexglue-sdk\out\install\win-amd64
 
 cmake --preset win-amd64-relwithdebinfo -DCMAKE_PREFIX_PATH=%REXSDK% -DRR6_NATIVE_GPU=ON
 cmake --build --preset win-amd64-relwithdebinfo --target rr6_codegen
@@ -187,17 +189,19 @@ sudo apt install clang-20 lld-20 cmake ninja-build build-essential git git-lfs \
   libdecor-0-dev libasound2-dev libpulse-dev libpipewire-0.3-dev \
   libcurl4-openssl-dev autoconf zip unzip curl python3-venv
 
-# SDK
-git clone --recursive https://github.com/stuken/rexglue-sdk.git
-cd rexglue-sdk
+git clone --recursive https://github.com/stuken/rr6.git
+cd rr6
+# game files in assets/, as on Windows
+
+# SDK, from the submodule
+cd thirdparty/rexglue-sdk
 cmake --preset linux-amd64
 cmake --build out/build/linux-amd64 --config RelWithDebInfo --target install
-cd ..
+cd ../..
 
-# rr6 (game files in rr6/assets as on Windows)
-cd rr6
+# rr6
 cmake --preset linux-amd64-relwithdebinfo \
-  -DCMAKE_PREFIX_PATH=$HOME/rexglue-sdk/out/install/linux-amd64 -DRR6_NATIVE_GPU=ON
+  -DCMAKE_PREFIX_PATH=$PWD/thirdparty/rexglue-sdk/out/install/linux-amd64 -DRR6_NATIVE_GPU=ON
 cmake --build --preset linux-amd64-relwithdebinfo --target rr6_codegen
 cmake --preset linux-amd64-relwithdebinfo
 cmake --build --preset linux-amd64-relwithdebinfo
@@ -218,7 +222,7 @@ On Linux the `rr6` executable is the Vulkan backend. Its window and surface come
 | `cmake/` | The native renderer and the shader build. |
 | `scripts/` | Shader extraction, icon generation, and `re/funcdb.py` for querying the codegen output. |
 | `tools/prelink_shader_cache.cpp` | `rr6_prelink`, which links the recompiled shaders ahead of time for D3D12. |
-| `thirdparty/` | plume, XenosRecomp (on a `rr6` branch with the XDK 2.0.2135 container support), miniz, zstd. |
+| `thirdparty/` | The ReXGlue SDK fork, plume and XenosRecomp (both on `rr6` branches; XenosRecomp's adds the XDK 2.0.2135 container support), miniz, zstd. |
 
 ## License
 

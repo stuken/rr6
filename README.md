@@ -3,7 +3,10 @@
 rr6 rebuilds Ridge Racer 6 (Xbox 360) as a native PC program using static recompilation. The game's PowerPC code is translated to C++ with the [ReXGlue SDK](https://github.com/rexglue/rexglue-sdk) and compiled for the host, so the game runs directly instead of inside an emulated console.
 
 > [!IMPORTANT]
-> This repository contains no game assets. You need the files from your own retail copy of Ridge Racer 6, and both building and running need them.
+> This repository contains nothing from the game. You need the files from your own retail copy of Ridge Racer 6, and both building and running need them. Everything derived from the game is produced on your machine at build time and is never committed:
+> - the recompiled C++ that codegen generates from `default.xex` (`generated/default/`, gitignored);
+> - the 176 Xenos shaders extracted from `default.xex`, and the DXIL and SPIR-V that XenosRecomp makes from them (inside the build directory);
+> - the window icon, also taken from `default.xex` (`src/icon.generated.*`, gitignored).
 
 ## Renderers
 

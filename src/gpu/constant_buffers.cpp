@@ -367,7 +367,7 @@ ConstantAllocation UploadSharedConstants(u32 device_guest) {
     s.shared.textureCubeIndices[i] = rr6::gpu::kNullTextureCubeDescriptorIndex;
 
     rr6::gpu::GuestTexture *tex =
-        vs.scale_copies[i] ? vs.scale_copies[i]
+        vs.sample_overrides[i] ? vs.sample_overrides[i]
                            : rr6::gpu::SampledTextureLocked(vs, vs.textures[i]);
     if (tex && tex->descriptorIndex != rr6::gpu::kInvalidDescriptorIndex) {
       switch (tex->viewDimension) {

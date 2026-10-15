@@ -27,7 +27,10 @@
 #include "gpu/backend.h"
 #include "gpu/format.h"
 #include "gpu/output.h"
+#include "gpu/shaders/shader_cache.h"
 
+REXCVAR_DEFINE_BOOL(rr6_fxaa, false, kCvarGroup,
+                    "FXAA on the 3D scene, before the HUD is drawn");
 REXCVAR_DEFINE_BOOL(rr6_scaled_post_filters, true, kCvarGroup,
                     "At a resolution scale, fit the race resolve's taps to a "
                     "host pixel and upscale the glow smoothly");
@@ -69,7 +72,7 @@ void DetachSourceSurfaceLocked(VideoState &s, GuestTexture *texture) {
 
 bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
                                 GuestTexture *dst, const char *reason,
-                                bool smooth_upscale) {
+                                CopyFilter filter) {
   if (!dst || !dst->texture || !src || !src->texture || src == dst) {
     return false;
   }
@@ -100,6 +103,7 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
       dst->viewDimension == plume::RenderTextureViewDimension::TEXTURE_CUBE;
 
   if (dims_match && format_match && !needs_scale &&
+      filter == CopyFilter::Default &&
       src->sampleCount == plume::RenderSampleCount::COUNT_1) {
     plume::RenderTextureBarrier pre[2] = {
         plume::RenderTextureBarrier(src->texture,
@@ -219,7 +223,8 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
     } else if (depth_dst) {
       pipeline = GetOrCreateCopyDepthPipeline(s, dst->format);
     } else {
-      pipeline = GetOrCreateResolvePipeline(s, dst->format);
+      pipeline = GetOrCreateResolvePipeline(s, dst->format,
+                                            filter == CopyFilter::Fxaa);
     }
     if (!pipeline) {
       static std::atomic<u32> s_warn{0};
@@ -248,8 +253,9 @@ bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
       float param1;
     } push{descriptor_index, 0u, depth_dst ? 1.0f : resolve_scale,
            // copy_color_ps: a negative Param1 selects the B-spline upscale.
-           smooth_upscale && !depth_dst ? -1.0f
-                                        : static_cast<float>(box_ratio)};
+           filter == CopyFilter::SmoothUpscale && !depth_dst
+               ? -1.0f
+               : static_cast<float>(box_ratio)};
     s.command_list->setGraphicsPushConstants(kCopyPushConstantRangeIndex, &push,
                                              kCopyPushConstantByteOffset,
                                              sizeof(push));
@@ -550,8 +556,8 @@ GuestTexture *SampledTextureLocked(const VideoState &s, GuestTexture *tex) {
 
 namespace {
 
-// A render-target texture of `like`'s format at w x h, for the guest scale
-// copy. Never resized: a texture's size is fixed for its lifetime.
+// A render-target texture of `like`'s format at w x h, for a filtered copy.
+// Never resized: a texture's size is fixed for its lifetime.
 std::unique_ptr<GuestTexture> CreateGuestScaleCopy(VideoState &s,
                                                    const GuestTexture *like,
                                                    u32 w, u32 h,
@@ -607,7 +613,7 @@ std::unique_ptr<GuestTexture> CreateGuestScaleCopy(VideoState &s,
 void BuildGuestScaleCopiesLocked(VideoState &s) {
   const u32 target_scale = TargetScaleLocked(s);
   for (u32 i = 0; i < 16; ++i) {
-    s.scale_copies[i] = nullptr;
+    s.sample_overrides[i] = nullptr;
     GuestTexture *tex = s.textures[i];
     if (!tex || !tex->texture || tex->hostScale == target_scale)
       continue;
@@ -618,11 +624,11 @@ void BuildGuestScaleCopiesLocked(VideoState &s) {
         tex->width % tex->hostScale || tex->height % tex->hostScale)
       continue;
     // A texture bound to several slots is copied once.
-    for (u32 j = 0; j < i && !s.scale_copies[i]; ++j) {
+    for (u32 j = 0; j < i && !s.sample_overrides[i]; ++j) {
       if (s.textures[j] == tex)
-        s.scale_copies[i] = s.scale_copies[j];
+        s.sample_overrides[i] = s.sample_overrides[j];
     }
-    if (s.scale_copies[i])
+    if (s.sample_overrides[i])
       continue;
     GuestTexture *src = SampledTextureLocked(s, tex);
     if (!src->texture || src->sampleCount != plume::RenderSampleCount::COUNT_1)
@@ -642,9 +648,50 @@ void BuildGuestScaleCopiesLocked(VideoState &s) {
       continue;
     if (CopySurfaceToTextureLocked(s, src, copy,
                                    down ? "GuestScaleCopy" : "GuestScaleUpscale",
-                                   /*smooth_upscale=*/!down))
-      s.scale_copies[i] = copy;
+                                   down ? CopyFilter::Default
+                                        : CopyFilter::SmoothUpscale))
+      s.sample_overrides[i] = copy;
   }
+}
+
+// RR6's colour grading pass (ps_82062AB8: colour balance, gamma, monotone)
+// is the last 3D post pass: it reads the resolved frame from slot 0 into the
+// back buffer, and the HUD is drawn straight after. Giving it an FXAA'd copy
+// of that frame anti-aliases the scene without softening the HUD. Grading is
+// per pixel, so filtering just before it is filtering the final scene.
+constexpr u64 kColourGradingPSHash = 0x0D40BDEF428B4D2Dull;
+
+void BuildFxaaCopyLocked(VideoState &s) {
+  if (!REXCVAR_GET(rr6_fxaa))
+    return;
+  const GuestShader *ps = s.pixel_shader;
+  if (!ps || !ps->shaderCacheEntry ||
+      ps->shaderCacheEntry->hash != kColourGradingPSHash)
+    return;
+  GuestTexture *tex = s.textures[0];
+  if (!tex || !tex->texture ||
+      tex->viewDimension != plume::RenderTextureViewDimension::TEXTURE_2D ||
+      tex->mipLevels > 1 || !IsRenderTargetCapable(tex->format))
+    return;
+  GuestTexture *src =
+      s.sample_overrides[0] ? s.sample_overrides[0] : SampledTextureLocked(s, tex);
+  if (!src->texture || src->sampleCount != plume::RenderSampleCount::COUNT_1)
+    return;
+  if (!tex->fxaaCopy) {
+    tex->fxaaCopy =
+        CreateGuestScaleCopy(s, src, src->width, src->height, src->hostScale);
+    if (!tex->fxaaCopy) {
+      RR6_WARN_FIRST(4, "FXAA copy {}x{} fmt={} could not be created",
+                     src->width, src->height, static_cast<int>(src->format));
+      return;
+    }
+  }
+  GuestTexture *copy = tex->fxaaCopy.get();
+  if (copy->width != src->width || copy->height != src->height ||
+      copy->format != src->format)
+    return;
+  if (CopySurfaceToTextureLocked(s, src, copy, "Fxaa", CopyFilter::Fxaa))
+    s.sample_overrides[0] = copy;
 }
 
 } // namespace rr6::gpu

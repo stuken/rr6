@@ -32,10 +32,19 @@ void ResolveEffectiveTargets(VideoState &s, GuestTexture *&rt,
 plume::RenderFramebuffer *GetFramebuffer(VideoState &s, GuestTexture *rt,
                                          GuestTexture *ds);
 
-// smooth_upscale: B-spline filter instead of bilinear when dst is larger.
+enum class CopyFilter {
+  // Same size: a straight copy. Smaller: a box filter at an integer ratio,
+  // else bilinear. Larger: bilinear.
+  Default,
+  // A B-spline upscale (copy_color_ps).
+  SmoothUpscale,
+  // FXAA at the same size (fxaa_ps).
+  Fxaa,
+};
+
 bool CopySurfaceToTextureLocked(VideoState &s, GuestTexture *src,
                                 GuestTexture *dst, const char *reason,
-                                bool smooth_upscale = false);
+                                CopyFilter filter = CopyFilter::Default);
 bool MaterializeOutboundLocked(VideoState &s, GuestTexture *source,
                                bool aliasable_only = false);
 void MaterializeInboundLocked(VideoState &s, GuestTexture *dst);

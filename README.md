@@ -156,6 +156,7 @@ Next to the executable, rr6 uses:
 | `rr6_vsync` | `true` | Vertical sync. |
 | `rr6_pso_precache` | `true` | Compile the recorded pipelines in the background at boot. |
 | `rr6_output_16bit` | `true` | Keep the game's back buffer at 16 bits per channel and dither to 8 bits at present, which smooths gradients at high resolution scales. `false` uses the console's 8 bits. Takes effect after a restart. |
+| `rr6_fxaa` | `false` | FXAA on the 3D scene, applied before the HUD is drawn, so the HUD stays sharp. Most useful at low resolution scales; at 3x and above edges are already smooth. |
 | `rr6_scaled_post_filters` | `true` | At a resolution scale above 1, fit the race anti-aliasing resolve to the host pixel and upscale the glow smoothly. `false` keeps the guest's filters as they are. |
 
 ### Testing and diagnostics

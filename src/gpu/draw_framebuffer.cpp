@@ -187,6 +187,7 @@ bool Video::BindDrawFramebufferLocked(bool color_clear_follows) {
   }
 
   BuildGuestScaleCopiesLocked(s);
+  BuildFxaaCopyLocked(s);
   TransitionResolveSources(s, rt, ds);
 
   if (s.draw_framebuffer_bound && rt == s.bound_fb_rt && ds == s.bound_fb_ds) {

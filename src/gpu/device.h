@@ -352,6 +352,7 @@ struct VideoState {
       copy_depth_pipelines_by_format;
   std::unique_ptr<plume::RenderShader> copy_vs;
   std::unique_ptr<plume::RenderShader> copy_color_ps;
+  std::unique_ptr<plume::RenderShader> fxaa_ps;
   std::unique_ptr<plume::RenderShader> copy_depth_ps;
 
   // Indexed by tier: [0]=2x, [1]=4x, [2]=8x.
@@ -366,6 +367,10 @@ struct VideoState {
   std::unordered_map<plume::RenderFormat,
                      std::unique_ptr<plume::RenderPipeline>>
       resolve_pipelines_by_format;
+  // The same copy, filtered by fxaa_ps (rr6_fxaa).
+  std::unordered_map<plume::RenderFormat,
+                     std::unique_ptr<plume::RenderPipeline>>
+      fxaa_pipelines_by_format;
 
   std::string backend_info;
 
@@ -453,9 +458,10 @@ struct VideoState {
   GuestTexture *fullscreen_chain_head = nullptr;
 
   GuestTexture *textures[16] = {};
-  // Per slot, for the draw being recorded: the copy of textures[i] at the
-  // target's scale, or null to sample the texture itself.
-  GuestTexture *scale_copies[16] = {};
+  // Per slot, for the draw being recorded: a filtered copy of textures[i] to
+  // sample instead (at the target's scale, or FXAA'd), or null to sample the
+  // texture itself.
+  GuestTexture *sample_overrides[16] = {};
   GuestShader *vertex_shader = nullptr;
   GuestShader *pixel_shader = nullptr;
   GuestVertexDeclaration *vertex_declaration = nullptr;
@@ -524,8 +530,10 @@ void RetireTextureBindingsLocked(VideoState &s, GuestTexture *dead);
 void DrainDescriptorSlotsLocked(VideoState &s, u32 slot);
 plume::RenderPipeline *GetOrCreateCopyDepthPipeline(VideoState &s,
                                                     plume::RenderFormat fmt);
+// fxaa: the copy runs fxaa_ps instead of copy_color_ps.
 plume::RenderPipeline *GetOrCreateResolvePipeline(VideoState &s,
-                                                  plume::RenderFormat format);
+                                                  plume::RenderFormat format,
+                                                  bool fxaa = false);
 plume::RenderPipeline *
 GetOrCreateResolveMSAAPipeline(VideoState &s, plume::RenderFormat dst_format,
                                plume::RenderSampleCounts src_samples,
@@ -540,9 +548,12 @@ u32 TargetScaleLocked(VideoState &s);
 // What a draw samples for the texture in a slot: the resolve source while the
 // resolve into the texture is still an alias, else the texture itself.
 GuestTexture *SampledTextureLocked(const VideoState &s, GuestTexture *tex);
-// Box-filters each bound texture with a higher scale than the draw's target
-// down to the target's scale, into scale_copies. Records copies, so it runs
+// Into sample_overrides, copies of the bound textures whose scale differs
+// from the draw's target, at the target's scale. Records copies, so it runs
 // before the draw framebuffer is bound.
 void BuildGuestScaleCopiesLocked(VideoState &s);
+// Under rr6_fxaa, an FXAA'd copy of the frame the colour grading pass reads,
+// into sample_overrides. Runs after BuildGuestScaleCopiesLocked.
+void BuildFxaaCopyLocked(VideoState &s);
 
 } // namespace rr6::gpu

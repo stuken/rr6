@@ -76,7 +76,7 @@ This installs the SDK to `rexglue-sdk\out\install\win-amd64`, which step 4 point
 ### 3. Clone rr6 and add the game files
 
 ```bat
-git clone --recursive <rr6 repository URL> rr6
+git clone --recursive https://github.com/stuken/rr6.git
 cd rr6
 ```
 

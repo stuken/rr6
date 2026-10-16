@@ -39,11 +39,16 @@ struct DescKey {
   plume::RenderBorderColor border;
   u32 maxAniso;
   bool anisoEnabled;
+  float minLOD;
+  float maxLOD;
+  float lodBias;
 
   bool operator==(const DescKey &other) const noexcept {
     return u == other.u && v == other.v && w == other.w && min == other.min &&
            mag == other.mag && mip == other.mip && border == other.border &&
-           maxAniso == other.maxAniso && anisoEnabled == other.anisoEnabled;
+           maxAniso == other.maxAniso && anisoEnabled == other.anisoEnabled &&
+           minLOD == other.minLOD && maxLOD == other.maxLOD &&
+           lodBias == other.lodBias;
   }
 };
 
@@ -59,6 +64,12 @@ struct DescKeyHash {
     bits |= static_cast<u64>(k.border) << 24;
     bits |= static_cast<u64>(k.maxAniso) << 28;
     bits |= static_cast<u64>(k.anisoEnabled) << 36;
+    // minLOD is a whole mip level (0-15). maxLOD is FLT_MAX or minLOD plus 0
+    // or 0.25, so only that offset's presence needs hashing.
+    bits |= static_cast<u64>(k.minLOD) << 40;
+    bits |= static_cast<u64>(k.maxLOD != k.minLOD) << 44;
+    // lodBias is a 10-bit fetch field over 32.
+    bits |= static_cast<u64>(static_cast<i64>(k.lodBias * 32.0f) & 0x3FF) << 45;
     return std::hash<u64>{}(bits);
   }
 };
@@ -101,15 +112,16 @@ plume::RenderTextureAddressMode ConvertClamp(xe::ClampMode mode) {
   return A::CLAMP;
 }
 
-// Only kPoint is nearest: kLinear, kBaseMap and kUseFetchConst all sample
-// linearly.
+// Only kPoint is nearest: kLinear and kUseFetchConst sample linearly. For the
+// mip filter, kBaseMap is handled before this is asked.
 bool IsNearest(xe::TextureFilter filter) {
   return filter == xe::TextureFilter::kPoint;
 }
 
 // The fetch constant's anisotropy limit, 0 when off. The shaders' tfetch
 // instructions all defer to the fetch constant (kUseFetchConst), so it is the
-// game's whole request. Every sampler state RR6 sets leaves it kDisabled.
+// game's whole request. RR6 leaves it kDisabled except on a few race samplers,
+// which ask for 2:1 or 4:1.
 u32 GuestAnisotropy(xe::AnisoFilter filter) {
   switch (filter) {
   case xe::AnisoFilter::kMax_1_1:
@@ -142,23 +154,42 @@ plume::RenderSamplerDesc DecodeFromFetch(const u32 fc[6]) {
                                             : plume::RenderFilter::LINEAR;
   d.minFilter = IsNearest(fetch.min_filter) ? plume::RenderFilter::NEAREST
                                             : plume::RenderFilter::LINEAR;
-  d.mipmapMode = IsNearest(fetch.mip_filter) ? plume::RenderMipmapMode::NEAREST
-                                             : plume::RenderMipmapMode::LINEAR;
+  // kBaseMap (D3DTEXF_NONE, the device default, which RR6 keeps for the menus
+  // and many race textures, mipped ones included) samples just the most
+  // detailed allowed level, mip_min_level, as the console did. As in the SDK's texture caches: point mip
+  // mode with MaxLOD a quarter level above MinLOD keeps the
+  // magnification/minification decision (Vulkan's GL_NEAREST/GL_LINEAR
+  // emulation), and with anisotropy, which D3D12 always filters linearly
+  // between levels, MaxLOD equals MinLOD.
+  const bool base_map = fetch.mip_filter == xe::TextureFilter::kBaseMap;
+  d.mipmapMode = base_map || IsNearest(fetch.mip_filter)
+                     ? plume::RenderMipmapMode::NEAREST
+                     : plume::RenderMipmapMode::LINEAR;
+  d.minLOD = static_cast<float>(fetch.mip_min_level);
+  // Signed, 5 fractional bits. RR6 sharpens many race textures by 1 to 3
+  // levels this way. The shaders' tfetch instructions carry no bias of their
+  // own, so the sampler can apply it whole.
+  d.mipLODBias = static_cast<float>(fetch.lod_bias) / 32.0f;
 
-  // rr6_anisotropy "default" (0) takes the fetch constant's level, which is
-  // always off in RR6; 2 to 16 forces that level. Either way only when every
-  // filter is already LINEAR: D3D12_FILTER_ANISOTROPIC hardcodes LINEAR
-  // min/mag, so enabling aniso on a POINT sampler silently upgrades it to
-  // bilinear on D3D12 but not on Vulkan.
+  // rr6_anisotropy "default" (0) takes the fetch constant's level; 2 to 16
+  // forces that level. Either way only when the
+  // filters are already LINEAR: D3D12_FILTER_ANISOTROPIC hardcodes LINEAR
+  // min/mag/mip, so enabling aniso on a POINT sampler silently upgrades it to
+  // bilinear on D3D12 but not on Vulkan. kBaseMap qualifies, since its LOD
+  // clamp leaves no second level to filter towards; its taps along the
+  // footprint's long axis still come from the one level.
   const i32 forced = Settings::Get().Anisotropy();
   const u32 aniso =
       forced > 0 ? static_cast<u32>(forced) : GuestAnisotropy(fetch.aniso_filter);
   const bool aniso_on = aniso > 0 &&
-                        d.mipmapMode == plume::RenderMipmapMode::LINEAR &&
+                        (base_map ||
+                         d.mipmapMode == plume::RenderMipmapMode::LINEAR) &&
                         d.minFilter == plume::RenderFilter::LINEAR &&
                         d.magFilter == plume::RenderFilter::LINEAR;
   d.anisotropyEnabled = aniso_on;
   d.maxAnisotropy = aniso_on ? aniso : 1u;
+  if (base_map)
+    d.maxLOD = d.minLOD + (aniso_on ? 0.0f : 0.25f);
 
   d.borderColor = fetch.border_color == xe::BorderColor::k_ABGR_White
                       ? plume::RenderBorderColor::OPAQUE_WHITE
@@ -175,6 +206,7 @@ u32 ResolveSlotLocked(const plume::RenderSamplerDesc &desc) {
       desc.addressU,    desc.addressV,      desc.addressW,
       desc.minFilter,   desc.magFilter,     desc.mipmapMode,
       desc.borderColor, desc.maxAnisotropy, desc.anisotropyEnabled,
+      desc.minLOD,      desc.maxLOD,        desc.mipLODBias,
   };
 
   auto &c = cache();

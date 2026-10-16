@@ -31,6 +31,7 @@
 #include "gpu/device.h"
 #include "gpu/host_resource_heap.h"
 #include "gpu/output.h"
+#include "gpu/texture_replace.h"
 #include "gpu/texture_upload.h"
 #include "gpu/perf_stats.h"
 
@@ -257,15 +258,21 @@ GuestTexture *BuildCubeMirror(const MirrorLayout &L, const u8 *src,
 
 // Levels 1..mip_max live at mip_address, with a packed tail for the <=16-texel
 // levels. nullptr leaves the caller on the single-level path.
-GuestTexture *BuildMippedMirror(const MirrorLayout &L,
-                                const xe::xe_gpu_texture_fetch_t &fetch,
-                                std::vector<u8> &base_staging,
-                                const plume::RenderComponentMapping *mapping) {
+// levels[0] is the untiled base; the mips below it are untiled into
+// level_bufs, when the texture has a chain.
+void GatherTiledLevels(const MirrorLayout &L,
+                       const xe::xe_gpu_texture_fetch_t &fetch,
+                       std::vector<u8> &base_staging,
+                       std::vector<std::vector<u8>> &level_bufs,
+                       std::vector<BCMipLevel> &mip_levels) {
+  mip_levels.clear();
+  mip_levels.push_back({base_staging.data(), base_staging.size(), L.width,
+                        L.height, L.row_width_texels});
   const auto *mip_src = rr6::mem::at<const u8>(fetch.mip_address << 12);
   const u32 mip_max_level = std::min<u32>(
       fetch.mip_max_level, rex::log2_floor(std::max(L.width, L.height)));
   if (mip_max_level < 1u || !mip_src)
-    return nullptr;
+    return;
 
   const tu::TextureGuestLayout layout = tu::GetGuestTextureLayout(
       xe::DataDimension::k2DOrStacked, fetch.pitch, L.width, L.height, 1u,
@@ -275,13 +282,10 @@ GuestTexture *BuildMippedMirror(const MirrorLayout &L,
 
   // packed_level 0 means the base is in the tail too, so there is no chain.
   if (layout.packed_level == 0u)
-    return nullptr;
+    return;
 
-  std::vector<std::vector<u8>> level_bufs(mip_max_level);
-  std::vector<BCMipLevel> mip_levels;
+  level_bufs.assign(mip_max_level, {});
   mip_levels.reserve(mip_max_level + 1u);
-  mip_levels.push_back({base_staging.data(), base_staging.size(), L.width,
-                        L.height, L.row_width_texels});
 
   for (u32 lvl = 1u; lvl <= mip_max_level; ++lvl) {
     const u32 lw = std::max(L.width >> lvl, 1u);
@@ -320,10 +324,6 @@ GuestTexture *BuildMippedMirror(const MirrorLayout &L,
     mip_levels.push_back(
         {dst.data(), dst.size(), lw, lh, dst_row_width_texels});
   }
-
-  return BuildBCMirrorTexture2DMips(L.width, L.height, u32(L.format),
-                                           mip_levels.data(),
-                                           u32(mip_levels.size()), mapping);
 }
 
 GuestTexture *Build2DMirror(const MirrorLayout &L, const u8 *src,
@@ -367,7 +367,17 @@ GuestTexture *Build2DMirror(const MirrorLayout &L, const u8 *src,
   GuestTexture *tex = nullptr;
   if (fetch.tiled) {
     UntileFace(L, src, staging.data(), L.pack_off_x, L.pack_off_y);
-    tex = BuildMippedMirror(L, fetch, staging, mapping_ptr);
+    std::vector<std::vector<u8>> level_bufs;
+    std::vector<BCMipLevel> levels;
+    GatherTiledLevels(L, fetch, staging, level_bufs, levels);
+    // A replacement for this content, or a dump of it. Linear textures are
+    // left out: the CPU rewrites them (the boot screen, movie planes).
+    tex = ReplaceOrDumpTexture(u32(L.format), L.width, L.height, levels.data(),
+                               u32(levels.size()), mapping);
+    if (!tex && levels.size() > 1)
+      tex = BuildBCMirrorTexture2DMips(L.width, L.height, u32(L.format),
+                                       levels.data(), u32(levels.size()),
+                                       mapping_ptr);
   } else {
     // Linear textures carry a single level here.
     CopyLinearFace(L, fetch, src, staging.data());

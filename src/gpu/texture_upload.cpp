@@ -9,6 +9,7 @@
  */
 #include "gpu/frame.h"
 
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -102,15 +103,45 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
   view_desc.componentMapping = d.mapping;
   t->textureView = t->texture->createTextureView(view_desc);
 
-  std::vector<ConstantAllocation> allocs(upload_count);
-  for (u32 i = 0; i < upload_count; ++i) {
-    allocs[i] = UploadHostBytes(uploads[i].data,
-                                static_cast<u32>(uploads[i].size), 0x200);
-    if (!allocs[i].memory) {
-      RR6_ERROR("{}: upload of subresource {} ({} bytes) failed", d.caller_name,
-               i, uploads[i].size);
+  // The per-frame upload ring takes at most 16 MiB in one allocation, and
+  // growing it for a large texture (a replacement) would keep that memory.
+  // Large uploads take a buffer of their own instead, freed once the frame
+  // that copies from it has retired.
+  constexpr size_t kPlacementAlign = 0x200;
+  constexpr size_t kDedicatedUploadBytes = size_t(4) << 20;
+  size_t total = 0;
+  for (u32 i = 0; i < upload_count; ++i)
+    total += (uploads[i].size + kPlacementAlign - 1) & ~(kPlacementAlign - 1);
+  std::unique_ptr<plume::RenderBuffer> dedicated;
+  std::vector<plume::RenderBufferReference> refs(upload_count);
+  if (total > kDedicatedUploadBytes) {
+    dedicated = CreateHostBuffer(
+        s.device.get(), plume::RenderBufferDesc::UploadBuffer(total),
+        "texture-upload");
+    auto *mapped = dedicated ? static_cast<u8 *>(dedicated->map()) : nullptr;
+    if (!mapped) {
+      RR6_ERROR("{}: {} byte upload buffer failed", d.caller_name, total);
       delete t;
       return nullptr;
+    }
+    size_t offset = 0;
+    for (u32 i = 0; i < upload_count; ++i) {
+      std::memcpy(mapped + offset, uploads[i].data, uploads[i].size);
+      refs[i] = dedicated->at(offset);
+      offset += (uploads[i].size + kPlacementAlign - 1) & ~(kPlacementAlign - 1);
+    }
+    dedicated->unmap();
+  } else {
+    for (u32 i = 0; i < upload_count; ++i) {
+      const ConstantAllocation alloc = UploadHostBytes(
+          uploads[i].data, static_cast<u32>(uploads[i].size), kPlacementAlign);
+      if (!alloc.memory) {
+        RR6_ERROR("{}: upload of subresource {} ({} bytes) failed",
+                  d.caller_name, i, uploads[i].size);
+        delete t;
+        return nullptr;
+      }
+      refs[i] = alloc.ref;
     }
   }
 
@@ -135,10 +166,12 @@ GuestTexture *BuildBCMirrorCore(const BCMirrorDesc &d,
         plume::RenderTextureCopyLocation::Subresource(
             t->texture, uploads[i].subresource, uploads[i].array_index),
         plume::RenderTextureCopyLocation::PlacedFootprint(
-            allocs[i].ref.ref, d.format, uploads[i].width, uploads[i].height,
-            uploads[i].fp_depth, uploads[i].row_width_texels,
-            allocs[i].ref.offset));
+            refs[i].ref, d.format, uploads[i].width, uploads[i].height,
+            uploads[i].fp_depth, uploads[i].row_width_texels, refs[i].offset));
   }
+  if (dedicated)
+    s.buffer_graveyard[Video::RetireSlot("texture upload")].push_back(
+        std::move(dedicated));
 
   plume::RenderTextureBarrier post(t->texture,
                                    plume::RenderTextureLayout::SHADER_READ);
@@ -199,6 +232,15 @@ GuestTexture *BuildBCMirrorTexture2DMips(u32 width, u32 height,
     RR6_WARN("BuildBCMirrorTexture2DMips: unsupported format 0x{:X}", format);
     return nullptr;
   }
+  return BuildHostTexture2DMips(fmt, width, height, levels, level_count,
+                                mapping);
+}
+
+GuestTexture *BuildHostTexture2DMips(
+    plume::RenderFormat fmt, u32 width, u32 height, const BCMipLevel *levels,
+    u32 level_count, const plume::RenderComponentMapping *mapping) {
+  if (!levels || level_count == 0)
+    return nullptr;
   BCMirrorDesc d{};
   d.resource_type = ResourceType::Texture;
   d.tex_dim = plume::RenderTextureDimension::TEXTURE_2D;
@@ -210,7 +252,7 @@ GuestTexture *BuildBCMirrorTexture2DMips(u32 width, u32 height,
   d.mip_levels = level_count;
   d.array_size = 1;
   d.flags = plume::RenderTextureFlag::NONE;
-  d.caller_name = "BuildBCMirrorTexture2DMips";
+  d.caller_name = "BuildHostTexture2DMips";
   if (mapping)
     d.mapping = *mapping;
   std::vector<BCSubresourceUpload> ups(level_count);

@@ -45,6 +45,12 @@ GuestTexture *BuildBCMirrorTexture2DMips(
     u32 width, u32 height, u32 format, const BCMipLevel *levels,
     u32 level_count, const plume::RenderComponentMapping *mapping = nullptr);
 
+// The same in any host format, for textures that do not come from a guest
+// format (texture replacement).
+GuestTexture *BuildHostTexture2DMips(
+    plume::RenderFormat format, u32 width, u32 height, const BCMipLevel *levels,
+    u32 level_count, const plume::RenderComponentMapping *mapping = nullptr);
+
 // Face rows padded to staging_row_bytes. arraySize=6 CUBE.
 GuestTexture *BuildBCMirrorTextureCube(u32 width, u32 height, u32 format,
                                        const u8 *faces[6],

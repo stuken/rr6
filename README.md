@@ -162,6 +162,7 @@ Next to the executable, rr6 uses:
 | `rr6_pso_precache` | `true` | Compile the recorded pipelines in the background at boot. |
 | `rr6_display_correction` | `true` | Apply the console's HDTV output curve at present, as its D3D programs it. Mid-tones and shadows come out darker than the raw frame, as on the console and the xenos plugin. `false` shows the raw frame. |
 | `rr6_output_16bit` | `true` | Keep the game's back buffer at 16 bits per channel and dither to 8 bits at present, which smooths gradients at high resolution scales. `false` uses the console's 8 bits. Takes effect after a restart. |
+| `rr6_texture_replace` | `true` | Use DDS files from `user\textures\replace` in place of the game's textures; see below. |
 | `rr6_lod_distance` | `1` | Multiplies the distances at which cars and course scenery switch to lower-detail models. RR6 drops rival cars to their lowest-detail model beyond about 50 units, so most rivals ahead are low detail; `10`-`20` keeps them at full detail. Works with both renderers. |
 | `rr6_fxaa` | `false` | FXAA on the 3D scene, applied before the HUD is drawn, so the HUD stays sharp. Most useful at low resolution scales; at 3x and above edges are already smooth. |
 | `rr6_scaled_post_filters` | `true` | At a resolution scale above 1, fit the race anti-aliasing resolve to the host pixel and upscale the glow smoothly. `false` keeps the guest's filters as they are. |
@@ -178,7 +179,24 @@ Next to the executable, rr6 uses:
 | `rr6_pso_capture` | Write the precache list, plus every pipeline a draw still had to compile, to `cache\pipeline_state_cache.h`. Copy it over `src\gpu\pipeline\cache\pipeline_state_cache.h` to extend the precache. |
 | `rr6_devmode` | Extra renderer diagnostics, including a log line for each pipeline compiled on the drawing thread. |
 | `rr6_d3d12_debug` | D3D12 debug layer. |
+| `rr6_texture_dump` | Write each texture the game uses to `user\textures\dump` as a DDS file, for making replacements. |
 | `rr6_baked_depth_bias` | Force the older-Windows path that bakes depth bias into pipelines. |
+
+### Texture replacement
+
+The native renderer can swap any of the game's 2D textures for a DDS file of your own, at any resolution.
+
+1. Run with `--rr6_texture_dump=true` and play through the parts you want to change. Each texture the game uses is written once to `user\textures\dump`, with all its mip levels. A race start dumps about 800 textures (70 MB).
+2. Copy the files you want to change into `user\textures\replace` (subfolders are fine), and edit them.
+3. Run normally. Matching files load in place of the game's textures; the log reports how many it found.
+
+Files are named `<hash>_<width>x<height>_<format>.dds`. The 16-digit hash identifies the texture by its content, and only that part of the name is matched, so the rest can change. A replacement can be:
+
+- any size, as the game samples textures by normalised coordinates;
+- BC1-BC5, BC7, RGBA8, BGRA8 or R8 (sRGB variants load as plain UNORM, as the console samples them);
+- with or without mip levels. Include them (for example `texconv -m 0`), or distant surfaces will shimmer.
+
+Keep the channel layout of the dump: normal maps (`bc5`) stay two-channel, and single-channel textures stay single-channel. Dumped `rgba8` textures already have the game's channel order applied, so they read correctly in an image editor. Cube and volume textures, and the textures the game rewrites every frame (movie frames, the boot screen), are not replaced. Replacements load while the course loads, so large uncompressed ones lengthen loading; BC7 keeps them small.
 
 ## Linux (not yet built)
 

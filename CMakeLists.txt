@@ -94,7 +94,8 @@ endif()
 
 # What both renderers share: game tweaks (rr6_lod_distance) and test tooling
 # (rr6_input_script).
-target_sources(rr6 PRIVATE src/game/lod.cpp src/platform/input_script.cpp)
+target_sources(rr6 PRIVATE src/game/lod.cpp src/game/xbox_live.cpp
+    src/platform/input_script.cpp)
 target_include_directories(rr6 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(RR6_NATIVE_GPU)

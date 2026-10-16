@@ -231,6 +231,13 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
      - Channel layout: k_8_8_8_8 dumps have the fetch swizzle applied, so their replacements use an identity mapping. Every other format is dumped as stored, and its replacement takes the mirror's component mapping (BC4 replication, BC5 as RGGG).
      - The per-frame upload ring caps a single allocation at 16 MiB, so `BuildBCMirrorCore` now gives uploads over 4 MiB a dedicated upload buffer, parked in the frame's buffer graveyard. `BuildHostTexture2DMips` takes a host format directly.
      - Checked: a race start dumps 799 textures (68 MB: 412 DXT5, 260 DXT1, 51 RGBA8, 50 BC5, 26 DXT3), and all of them decode in Pillow. Seven tinted RGBA8 replacements (2048² and one 2x upscale to 1024x4096) load on D3D12 and Vulkan with no warnings, and the replaced road surface and gantry show on screen. About 100 MB of uncompressed replacements delayed the race start by roughly 20 frames of loading.
+   - **Global Rankings freeze** (`src/game/xbox_live.cpp`, both renderers). Global Time Attack -> Global Rankings asks "An Xbox Live connection is required in order to proceed. Attempt to reconnect?".
+     - NO returned to the menu. YES froze it: the screen kept animating but ignored all input. Presentation never stopped.
+     - The screen's update, `sub_8218A758(screen, ..., r5 = answer, ...)`, keeps its state at screen+0 and dispatches through a 34-entry jump table (0x82012398, base 0x8218A7D4).
+     - State 25 takes the answer. YES calls `sub_8210EA30` (XShowSigninUI) and moves to state 26. State 26 waits for the Live context's "system UI open" flag (0x823B0934) to be set, which the game does on an XN_SYS_UI(true) notification. State 27 then waits for it to clear.
+     - The SDK's `XamShowSigninUI` broadcasts only XN_SYS_SIGNINCHANGED and XN_SYS_UI(false), so state 26 never ends. A hook that only made the sign-in call fail didn't help, because the game moves to state 26 before calling it and ignores the result.
+     - The hook forces the answer to NO in state 25: with no Live service there is nothing to reconnect to. Checked: YES now returns to a responsive menu, and B goes back to the main menu.
+     - `sub_8218D788` is the main menu's own Live check after the title screen, not this prompt.
 5. **Lifetime:** done (`hooks/resource.cpp`).
    - `D3DResource_Destroy` (called by `D3DResource_Release` and the device's unbinding at refcount zero) drops the mirror by `Common` type (bits 16-18):
      - vertex and index buffers: `EvictGuestBuffer`, keyed by the data base at `+12`;

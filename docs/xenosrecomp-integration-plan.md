@@ -9,10 +9,10 @@ Reference implementation: `D:\reblue` (v1.3.1). SDK: rexglue 0.10.0 (both projec
 | Phase | State |
 |---|---|
 | 0. Extraction | **Done.** `scripts/extract_shaders.py` gives 176 unique shaders (103 VS, 73 PS) from 244 containers. No runtime census is needed: `D3DDevice_Create{Vertex,Pixel}Shader` each have exactly one caller (the boot loader `0x82222900`, which walks the 122-pair table at `0x82373508`), and no data pointer references them outside `.pdata`. |
-| 1. XenosRecomp fork | **Done.** `thirdparty/XenosRecomp`, branch `rr6`, uncommitted. All 176 shaders produce DXIL and SPIR-V with 0 failures. |
-| 2. Build integration | **Done.** `rr6_shader_cache` (OBJECT library) builds from `default.xex`. Nothing links it yet. The `src/CMakeLists.txt` and `rr6_common` restructure is deferred to Phase 4, where the sources first appear. |
+| 1. XenosRecomp fork | **Done.** `thirdparty/XenosRecomp`, a submodule on the `rr6` branch of github.com/stuken/reblue-XenosRecomp. All 176 shaders produce DXIL and SPIR-V with 0 failures. |
+| 2. Build integration | **Done.** `rr6_shader_cache` (OBJECT library) builds from `default.xex`, and the native renderer (`cmake/native_gpu.cmake`) links it into `rr6` and `rr6_vk`. |
 | 3. D3D identification | **Done for the hook set.** `config/d3d.toml` names 75 functions and is included from `rr6_manifest.toml`. Scratch codegen applies all 75 with no warnings. The device layout is in that file's header. `scripts/re/funcdb.py` queries the codegen output. Render-state names are open (see below). |
-| 4. Native renderer | **Milestone 4 done.** With `-DRR6_NATIVE_GPU=ON` the game plays from boot through the menus into a race, and the race scene, car select and course intro match the xenos plugin (verified against real hardware). The car's dynamic environment reflections are still missing. `OFF` still builds and runs the xenos plugin. |
+| 4. Native renderer | **Milestone 4 done.** With `-DRR6_NATIVE_GPU=ON` the game plays from boot through the menus into a race, and the race scene, car select and course intro match the xenos plugin (verified against real hardware). The car's dynamic environment reflections work since user clip planes were added (see below). `OFF` still builds and runs the xenos plugin. |
 | 5. Hardening and performance | **In progress.** Perf counters, display-locked frame pacing, the pipeline precache and the Windows Vulkan build (`rr6_vk.exe`) are done (see Phase 5 below). Linux and macOS are open. |
 
 ### Phase 4, milestone 1 (what exists)

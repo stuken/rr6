@@ -24,8 +24,8 @@ The license above covers rr6's own code. These parts keep their own terms:
   from re:Blue and remain under its BSD 3-Clause License, reproduced in
   licenses/reblue-BSD-3-Clause.txt. Redistributions of those files, in source
   or binary form, must keep that notice.
-- Everything under thirdparty/ (plume, XenosRecomp, miniz, zstd) is under its
-  own license, in its LICENSE file or source headers.
+- Everything under thirdparty/ (rexglue-sdk, plume, XenosRecomp, miniz,
+  zstd) is under its own license, in its LICENSE file or source headers.
 
 This repository contains nothing from Ridge Racer 6: no game data, no code
 recompiled from its executable and no shaders extracted from it. Those are

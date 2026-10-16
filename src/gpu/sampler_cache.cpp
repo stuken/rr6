@@ -28,7 +28,7 @@ namespace {
 namespace xe = rex::graphics::xenos;
 
 // Only these fields ever vary, so they form the key, not the full desc.
-// anisoEnabled is separate: at rr6_anisotropy 1 both states carry maxAniso 1.
+// anisoEnabled is separate: a game-set 1:1 limit and off both carry maxAniso 1.
 struct DescKey {
   plume::RenderTextureAddressMode u;
   plume::RenderTextureAddressMode v;
@@ -107,6 +107,26 @@ bool IsNearest(xe::TextureFilter filter) {
   return filter == xe::TextureFilter::kPoint;
 }
 
+// The fetch constant's anisotropy limit, 0 when off. The shaders' tfetch
+// instructions all defer to the fetch constant (kUseFetchConst), so it is the
+// game's whole request. Every sampler state RR6 sets leaves it kDisabled.
+u32 GuestAnisotropy(xe::AnisoFilter filter) {
+  switch (filter) {
+  case xe::AnisoFilter::kMax_1_1:
+    return 1;
+  case xe::AnisoFilter::kMax_2_1:
+    return 2;
+  case xe::AnisoFilter::kMax_4_1:
+    return 4;
+  case xe::AnisoFilter::kMax_8_1:
+    return 8;
+  case xe::AnisoFilter::kMax_16_1:
+    return 16;
+  default:
+    return 0;
+  }
+}
+
 } // namespace
 
 plume::RenderSamplerDesc DecodeFromFetch(const u32 fc[6]) {
@@ -125,17 +145,20 @@ plume::RenderSamplerDesc DecodeFromFetch(const u32 fc[6]) {
   d.mipmapMode = IsNearest(fetch.mip_filter) ? plume::RenderMipmapMode::NEAREST
                                              : plume::RenderMipmapMode::LINEAR;
 
-  // The guest's fetch constants leave aniso_filter off. rr6_anisotropy opts
-  // in, and only when every filter is already LINEAR:
-  // D3D12_FILTER_ANISOTROPIC hardcodes LINEAR min/mag, so enabling aniso on a
-  // POINT sampler silently upgrades it to bilinear on D3D12 but not on Vulkan.
-  const i32 aniso = Settings::Get().Anisotropy();
+  // rr6_anisotropy "default" (0) takes the fetch constant's level, which is
+  // always off in RR6; 2 to 16 forces that level. Either way only when every
+  // filter is already LINEAR: D3D12_FILTER_ANISOTROPIC hardcodes LINEAR
+  // min/mag, so enabling aniso on a POINT sampler silently upgrades it to
+  // bilinear on D3D12 but not on Vulkan.
+  const i32 forced = Settings::Get().Anisotropy();
+  const u32 aniso =
+      forced > 0 ? static_cast<u32>(forced) : GuestAnisotropy(fetch.aniso_filter);
   const bool aniso_on = aniso > 0 &&
                         d.mipmapMode == plume::RenderMipmapMode::LINEAR &&
                         d.minFilter == plume::RenderFilter::LINEAR &&
                         d.magFilter == plume::RenderFilter::LINEAR;
   d.anisotropyEnabled = aniso_on;
-  d.maxAnisotropy = aniso_on ? static_cast<u32>(aniso) : 1u;
+  d.maxAnisotropy = aniso_on ? aniso : 1u;
 
   d.borderColor = fetch.border_color == xe::BorderColor::k_ABGR_White
                       ? plume::RenderBorderColor::OPAQUE_WHITE

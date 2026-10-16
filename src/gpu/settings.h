@@ -24,6 +24,7 @@ public:
   // anything that calls them calls this after.
   void AdoptCvars();
 
+  // 0 follows the game's sampler states; 2, 4, 8 or 16 forces that level.
   i32 Anisotropy() const { return anisotropy_; }
   bool SetAnisotropy(i32 v);
 
@@ -51,7 +52,7 @@ private:
   void AdoptSuperSampling();
 
   // The cvar defaults, so a reader that runs before Init sees the same values.
-  i32 anisotropy_ = 16;
+  i32 anisotropy_ = 0;
   i32 superSampling_ = 1;
   bool vsync_ = true;
   bool geometryGPUUpload_ = true;

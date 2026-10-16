@@ -16,7 +16,7 @@
 
 REXCVAR_DECLARE(bool, rr6_geometry_gpu_upload);
 REXCVAR_DECLARE(bool, rr6_dred);
-REXCVAR_DECLARE(i32, rr6_anisotropy);
+REXCVAR_DECLARE(std::string, rr6_anisotropy);
 REXCVAR_DECLARE(i32, rr6_supersampling);
 REXCVAR_DECLARE(bool, rr6_vsync);
 
@@ -30,10 +30,12 @@ REXCVAR_DEFINE_BOOL(rr6_dred, true, kCvarGroup,
                     "so a lost device names the op and resource it died on. "
                     "Costs a little GPU time per op. Requires restart.");
 
-REXCVAR_DEFINE_INT32(rr6_anisotropy, 16, kCvarGroup,
-                     "Anisotropic texture filtering level, for samplers the "
-                     "game sets to linear filtering. 0 = off.")
-    .range(0, 16);
+REXCVAR_DEFINE_STRING(rr6_anisotropy, "default", kCvarGroup,
+                      "Anisotropic texture filtering. default = what the "
+                      "game's sampler states ask for; 2, 4, 8 or 16 forces "
+                      "that level on every sampler the game sets to linear "
+                      "filtering.")
+    .allowed({"default", "2", "4", "8", "16"});
 
 REXCVAR_DEFINE_INT32(rr6_supersampling, 1, kCvarGroup,
                      "Render at twice the resolution scale and downsample "
@@ -54,6 +56,22 @@ namespace {
 std::string FormatCvar(i32 v) { return std::to_string(v); }
 std::string FormatCvar(bool v) { return v ? "true" : "false"; }
 
+// 0 for "default". The cvar's allowed list only guards config and console
+// writes: the SDK applies command line and environment values unvalidated, so
+// anything other than 2, 4, 8 or 16 falls back to default here too.
+i32 ParseAnisotropy(std::string_view v) {
+  i32 n = 0;
+  auto r = std::from_chars(v.data(), v.data() + v.size(), n);
+  if (r.ec == std::errc() && r.ptr == v.data() + v.size() &&
+      (n == 2 || n == 4 || n == 8 || n == 16))
+    return n;
+  if (v != "default")
+    RR6_WARN("rr6_anisotropy: '{}' is not default, 2, 4, 8 or 16; using "
+             "default",
+             v);
+  return 0;
+}
+
 } // namespace
 
 Settings &Settings::Get() {
@@ -61,7 +79,9 @@ Settings &Settings::Get() {
   return s;
 }
 
-void Settings::AdoptAnisotropy() { anisotropy_ = REXCVAR_GET(rr6_anisotropy); }
+void Settings::AdoptAnisotropy() {
+  anisotropy_ = ParseAnisotropy(REXCVAR_GET(rr6_anisotropy));
+}
 void Settings::AdoptVsync() { vsync_ = REXCVAR_GET(rr6_vsync); }
 void Settings::AdoptGeometryGPUUpload() {
   geometryGPUUpload_ = REXCVAR_GET(rr6_geometry_gpu_upload);
@@ -72,7 +92,8 @@ void Settings::AdoptSuperSampling() {
 }
 
 bool Settings::SetAnisotropy(i32 v) {
-  return rex::cvar::SetFlagByName("rr6_anisotropy", FormatCvar(v));
+  return rex::cvar::SetFlagByName("rr6_anisotropy",
+                                  v == 0 ? "default" : FormatCvar(v));
 }
 
 bool Settings::SetVsync(bool v) {

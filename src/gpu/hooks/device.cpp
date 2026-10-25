@@ -95,10 +95,10 @@ void BindDefaultSurfaces(u32 device_va, u32 params_va) {
       SetDepthStencilSurface(device_va, depth);
   }
   rr6::gpu::NoteDefaultSurfaces(back, depth);
-  RR6_INFO("Direct3D_CreateDevice: {}x{} back buffer 0x{:08X} (format "
-           "0x{:08X}), depth 0x{:08X} (format 0x{:08X})",
-           width, height, back, u32(pp->BackBufferFormat), depth,
-           u32(pp->AutoDepthStencilFormat));
+  RR6_DEBUG("Direct3D_CreateDevice: {}x{} back buffer 0x{:08X} (format "
+            "0x{:08X}), depth 0x{:08X} (format 0x{:08X})",
+            width, height, back, u32(pp->BackBufferFormat), depth,
+            u32(pp->AutoDepthStencilFormat));
 }
 
 u32 Direct3D_CreateDevice_hook(u32 /*adapter*/, u32 /*device_type*/,
@@ -141,7 +141,7 @@ u32 Direct3D_CreateDevice_hook(u32 /*adapter*/, u32 /*device_type*/,
 
   if (out_device)
     *out_device = device_va;
-  RR6_INFO("Direct3D_CreateDevice: guest device at 0x{:08X}", device_va);
+  RR6_DEBUG("Direct3D_CreateDevice: guest device at 0x{:08X}", device_va);
   return 0;
 }
 
@@ -170,7 +170,7 @@ std::atomic<u32> g_presents{0};
 u32 D3DDevice_Present_hook(u32 /*device*/) {
   const u32 s_presents = g_presents.fetch_add(1, std::memory_order_relaxed) + 1;
   if (s_presents == 1)
-    RR6_INFO("D3DDevice_Present: first frame");
+    RR6_DEBUG("D3DDevice_Present: first frame");
   if (s_presents == 60 || (s_presents % 600) == 0)
     rr6::gpu::LogDrawStats(s_presents);
   rr6::gpu::Video::Present(nullptr);

@@ -23,12 +23,14 @@ REXCVAR_DECLARE(bool, rr6_vsync);
 REXCVAR_DEFINE_BOOL(rr6_geometry_gpu_upload, true, kCvarGroup,
                     "Place static geometry in the GPU_UPLOAD heap when the "
                     "device supports it. Off uses UPLOAD instead, costing the "
-                    "write-combine win on AMD. Requires restart.");
+                    "write-combine win on AMD. Requires restart.")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 REXCVAR_DEFINE_BOOL(rr6_dred, true, kCvarGroup,
                     "Record D3D12 auto-breadcrumbs and page-fault allocations "
                     "so a lost device names the op and resource it died on. "
-                    "Costs a little GPU time per op. Requires restart.");
+                    "Costs a little GPU time per op. Requires restart.")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 REXCVAR_DEFINE_STRING(rr6_anisotropy, "default", kCvarGroup,
                       "Anisotropic texture filtering. default = what the "
@@ -42,6 +44,7 @@ REXCVAR_DEFINE_INT32(rr6_supersampling, 1, kCvarGroup,
                      "(rr6_resolution_scale). 1 = off, 2 = on. Requires "
                      "restart.")
     .range(1, 2)
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart)
     .validator([](std::string_view v) {
       int n = 0;
       auto r = std::from_chars(v.data(), v.data() + v.size(), n);

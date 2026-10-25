@@ -45,10 +45,10 @@ Stats g_vs, g_ps;
 constexpr u32 kBootShadersPerStage = 122;
 
 void LogStageSummary(const char *stage, const Stats &st) {
-  RR6_INFO("{} shaders: {} created, {} recompiled cache hits, {} host shaders "
-           "built",
-           stage, st.created.load(), st.cache_hits.load(),
-           st.host_built.load());
+  RR6_DEBUG("{} shaders: {} created, {} recompiled cache hits, {} host shaders "
+            "built",
+            stage, st.created.load(), st.cache_hits.load(),
+            st.host_built.load());
 }
 
 void TrackCreated(u32 guest_obj, u32 container_va, ResourceType type) {

@@ -14,6 +14,7 @@ Reference implementation: `D:\reblue` (v1.3.1). SDK: rexglue 0.10.0 (both projec
 | 3. D3D identification | **Done for the hook set.** `config/d3d.toml` names 75 functions and is included from `rr6_manifest.toml`. Scratch codegen applies all 75 with no warnings. The device layout is in that file's header. `scripts/re/funcdb.py` queries the codegen output. Render-state names are open (see below). |
 | 4. Native renderer | **Milestone 4 done.** With `-DRR6_NATIVE_GPU=ON` the game plays from boot through the menus into a race, and the race scene, car select and course intro match the xenos plugin (verified against real hardware). The car's dynamic environment reflections work since user clip planes were added (see below). `OFF` still builds and runs the xenos plugin. |
 | 5. Hardening and performance | **In progress.** Perf counters, display-locked frame pacing, the pipeline precache and the Windows Vulkan build (`rr6_vk.exe`) are done (see Phase 5 below). Linux and macOS are open. |
+| 6. User-facing polish | **Done** (2026-10-25), the same items as pgr4's Phase 7 apart from its camera hook. Bring-up detail is at the debug log level, so a race at the defaults logs nothing past the start-up summary. F4 opens a short settings menu, and `rr6_resolution_scale` now defaults to 1x. See Phase 6 below. |
 
 ### Phase 4, milestone 1 (what exists)
 
@@ -182,7 +183,7 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
      - every render surface (`HostSurface`);
      - the back buffer (`GuestBackBufferDims`);
      - every resolve target (`GetOrCreateResolveTarget`), cubes included.
-   - The default, 0, takes the render height over 720, rounded up: 3x at 2160p and 2x at 1080p, which supersamples. The scale is latched on first use, so a window resize keeps it and Present scales as before.
+   - 0 takes the render height over 720, rounded up (the default until Phase 6, which made it 1): 3x at 2160p and 2x at 1080p, which supersamples. The scale is latched on first use, so a window resize keeps it and Present scales as before.
    - Viewports and scissors stay in guest pixels everywhere and are scaled only in `FlushViewport`. `SetDefaultViewport` divides host sizes back down.
    - Resolve source rects and destination points are scaled at the top of `ResolveRtToTexture`. Since both sides of every copy carry the same factor, the region copies, the cube faces and the box-filter downsample keep their exact ratios. That is why only integer scales are allowed.
    - Shaders need no other changes:
@@ -301,6 +302,41 @@ Xenos was confirmed correct against hardware. Each fix below was found by compar
    - **Checked:** two races at 1x under the Khronos validation layer (built locally with vcpkg, not shipped) with no messages, and one race at 3x. Frames 8000 and 16500 match the D3D12 references to within run-to-run variance (mean 0.8 to 2 of 255). D3D12 output is unchanged.
    - **Pacing:** Vulkan has no swap interval in plume, so it uses the timer pacer. In race windows that gave p99 16.67 ms and no frame over 17.5 ms.
 6. **Open:** Linux and macOS (the Vulkan exe is the base for both). Online Battle, Global Time Attack and replays were not captured; a draw that still compiles is logged under `rr6_devmode`.
+
+### Phase 6 (user-facing polish)
+
+pgr4's Phase 7 (`D:\rexglue_projects\pgr4\docs\native-renderer-plan.md`), without its bumper camera item. Nothing here changes a frame at the defaults, apart from the resolution scale's new default.
+
+1. **Renderer diagnostics at the debug level.** The SDK's default `log_level` is `info`. A player's log should hold the adapter, the resolution scale, the precache summary, frame pacing and real faults, and nothing else.
+   - **Moved to `RR6_DEBUG`** (eight sites):
+     - `Direct3D_CreateDevice`'s two lines and `D3DDevice_Present: first frame` (`hooks/device.cpp`);
+     - the VS and PS shader creation summaries (`hooks/shader.cpp`);
+     - `D3DSurface_GetDesc` and `depth surface grows` (`hooks/state.cpp`);
+     - both `[output-res]` lines (`device.cpp`, `output.cpp`).
+   - **Stay at `RR6_INFO`:**
+     - the summaries above: GPU caps, resolution scale, pso precache, frame pacing and texture replacement;
+     - output that a diagnostic cvar turns on, where setting the cvar is the opt-in: `[trace]`, `[perf]`, `rr6_dump_frames`, `rr6_log_destroy`, `rr6_input_script`, `pso capture` and the `[d3d12]` switches;
+     - the `[shutdown]` lines.
+   - **Warnings:** none of the `RR6_WARN_FIRST`s fired in a race, so all stay. pgr4's `DEBUG_FIRST` macro isn't needed here.
+   - **Checked** (2026-10-25, D3D12, RelWithDebInfo):
+     - A run at the defaults that idles for 200 s logs 9 lines.
+     - A scripted run into a race (frame dumps 6000 and 10000 are mid-race) logs 15. Past the adapter, scale and precache lines, they are all the script's and the dumps' own markers.
+     - With `--log_level=debug` the demoted lines are back.
+2. **A short F4 settings menu:** `gpu/settings_overlay.{h,cpp}`, installed from `Rr6App::OnCreateDialogs` in the native build. The xenos build keeps the SDK dialog.
+   - **The bind:** a bind's name can't be registered twice (its key cvar is registered once). So the menu has its own bind, `bind_rr6_settings`, on the SDK bind's key. The SDK's `bind_settings` is unregistered and its key emptied, so the keybinds page shows no conflict.
+   - **What it lists**, in plain words, with each cvar's description and name on hover:
+     - *Display:* fullscreen and `rr6_vsync`;
+     - *Resolution:* `rr6_resolution_scale` (Auto, 1x to 4x) and `rr6_supersampling`;
+     - *Image quality:* `rr6_fxaa`, `rr6_anisotropy`, `rr6_lod_distance` (1x to 20x), `rr6_output_16bit` and `rr6_display_correction`.
+   - **Left to the full dialog:**
+     - `rr6_fps_limit`: RR6 is fixed at 60 fps;
+     - `rr6_texture_replace`;
+     - `rr6_scaled_post_filters`;
+     - every diagnostic, trace, dump, pso, d3d12 and DRED switch.
+   - **The window:** Save writes `rr6.toml`, and "All settings..." opens the SDK dialog.
+   - **Restart-only options:** `rr6_resolution_scale`, `rr6_supersampling` and `rr6_output_16bit` are now declared `kRequiresRestart`, so both menus mark them "(restart)". So are `rr6_geometry_gpu_upload` and `rr6_dred`, which only the full dialog lists. The rest are read per frame, per sampler or per call, so they apply live.
+   - **Resolution scale default:** now 1x (native 1280x720) rather than following the window height. `0` still picks it from the window.
+   - **Checked:** the menu appears on screen. Each live control and the Vulkan exe are not yet checked one by one.
 
 ### Phase 3 findings
 

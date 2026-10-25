@@ -25,7 +25,8 @@
 REXCVAR_DEFINE_DOUBLE(rr6_lod_distance, 1.0, kCvarGroup,
                       "Multiplies the distances at which course scenery and "
                       "cars switch to lower detail models: 2 keeps full "
-                      "detail twice as far out, a large value (100) always");
+                      "detail twice as far out, a large value (100) always "
+                      "keeps it");
 
 REX_EXTERN(__imp__sub_822150E0);
 REX_EXTERN(__imp__sub_82215138);

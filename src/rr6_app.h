@@ -24,6 +24,7 @@ REXCVAR_DECLARE(bool, rr6_null_audio);
 #include "gpu/device.h"
 #include "gpu/imgui_overlay_drawer.h"
 #include "gpu/settings.h"
+#include "gpu/settings_overlay.h"
 #include "platform/guest_abort_log.h"
 #endif
 
@@ -54,6 +55,7 @@ class Rr6App : public rex::ReXApp {
   }
 
   void OnConfigurePaths(rex::PathConfig& paths) override {
+      config_path_ = paths.config_path;
       const auto base_dir = paths.config_path.parent_path();
       if (paths.game_data_root.empty()) { // Use default assets directory path if one isn't provided!
           if (std::filesystem::is_regular_file(base_dir / "assets/default.xex")) {
@@ -110,6 +112,11 @@ class Rr6App : public rex::ReXApp {
         });
   }
 
+  // F4 opens rr6's short settings menu in place of the SDK's full one.
+  void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    rr6::gpu::SettingsOverlay::InstallBind(drawer, config_path_);
+  }
+
   void OnWindowPixelSizeChanged(u32, u32) override {
     rr6::gpu::Video::RequestResize();
   }
@@ -129,4 +136,8 @@ class Rr6App : public rex::ReXApp {
   // std::unique_ptr<rex::ui::AchievementNotificationDialog>
   // CreateAchievementNotificationDialog() override;
   // void OnShutdown() override {}
+
+ private:
+  // Where the settings menus save (OnConfigurePaths).
+  std::filesystem::path config_path_;
 };

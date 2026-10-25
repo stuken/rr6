@@ -152,9 +152,11 @@ Next to the executable, rr6 uses:
 
 ### Native renderer settings
 
+F4 opens a short settings menu with the display, resolution and image quality options below, in plain words. Hover an option for its cvar. Save writes `rr6.toml`, and "All settings..." opens the SDK's full list of every cvar. Options marked "(restart)" take effect the next time the game starts.
+
 | Cvar | Default | |
 |---|---|---|
-| `rr6_resolution_scale` | `0` | Integer scale over 1280x720. `0` picks it from the window height; `1` is native. |
+| `rr6_resolution_scale` | `1` | Integer scale over 1280x720. `1` is native; `0` picks it from the window height. Takes effect after a restart. |
 | `rr6_supersampling` | `1` | `2` renders at twice the scale and downsamples. Takes effect after a restart. |
 | `rr6_anisotropy` | `default` | Anisotropic filtering. `default` leaves it as the game sets it, which is off apart from 2x or 4x on a few race textures; `2`, `4`, `8` or `16` forces that level. |
 | `rr6_fps_limit` | `60` | Presentation cap. `0` means no cap. |

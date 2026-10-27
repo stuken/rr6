@@ -1,39 +1,39 @@
 // rr6 - ReXGlue Recompiled Project
 //
-// The F4 settings menu: the few options a player needs (display, frame rate,
+// The F1 settings menu: the few options a player needs (display, frame rate,
 // resolution, image quality) in plain words, over the same cvars and config
-// file as the SDK's full settings dialog, which "All settings" still opens.
+// file as the SDK's full settings dialog, which stays on its own F4 bind.
 
 #pragma once
 
 #include <filesystem>
-#include <memory>
+#include <functional>
 
 #include <rex/ui/imgui_dialog.h>
-
-namespace rex::ui {
-class SettingsDialog;
-} // namespace rex::ui
 
 namespace rr6::gpu {
 
 class SettingsOverlay final : public rex::ui::ImGuiDialog {
 public:
   SettingsOverlay(rex::ui::ImGuiDrawer *imgui_drawer,
-                  std::filesystem::path config_path);
+                  std::filesystem::path config_path,
+                  std::function<void()> quit);
   ~SettingsOverlay() override;
 
-  // Replaces the SDK's F4 bind with one that toggles this menu. Call from
-  // OnCreateDialogs, after the SDK has registered its own binds.
+  // Registers F1 to toggle this menu; the SDK's full dialog stays on F4.
+  // Call from OnCreateDialogs, after the SDK has registered its own binds.
+  // `quit` runs from inside the ImGui draw, so it must defer the actual
+  // shutdown (ui_drawer.h).
   static void InstallBind(rex::ui::ImGuiDrawer *imgui_drawer,
-                          std::filesystem::path config_path);
+                          std::filesystem::path config_path,
+                          std::function<void()> quit);
 
 protected:
   void OnDraw(ImGuiIO &io) override;
 
 private:
   std::filesystem::path config_path_;
-  std::unique_ptr<rex::ui::SettingsDialog> all_settings_;
+  std::function<void()> quit_;
 };
 
 } // namespace rr6::gpu

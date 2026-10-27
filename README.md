@@ -152,7 +152,7 @@ Next to the executable, rr6 uses:
 
 ### Native renderer settings
 
-F4 opens a short settings menu with the display, resolution and image quality options below, in plain words. Hover an option for its cvar. Save writes `rr6.toml`, and "All settings..." opens the SDK's full list of every cvar. Options marked "(restart)" take effect the next time the game starts.
+F1 opens a short settings menu with the display, resolution and image quality options below, in plain words. Hover an option for its cvar. Save writes `rr6.toml`, Quit game exits after a confirmation, and F4 still opens the SDK's full list of every cvar. Options marked "(restart)" take effect the next time the game starts.
 
 | Cvar | Default | |
 |---|---|---|

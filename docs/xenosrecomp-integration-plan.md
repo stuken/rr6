@@ -14,7 +14,7 @@ Reference implementation: `D:\reblue` (v1.3.1). SDK: rexglue 0.10.0 (both projec
 | 3. D3D identification | **Done for the hook set.** `config/d3d.toml` names 75 functions and is included from `rr6_manifest.toml`. Scratch codegen applies all 75 with no warnings. The device layout is in that file's header. `scripts/re/funcdb.py` queries the codegen output. Render-state names are open (see below). |
 | 4. Native renderer | **Milestone 4 done.** With `-DRR6_NATIVE_GPU=ON` the game plays from boot through the menus into a race, and the race scene, car select and course intro match the xenos plugin (verified against real hardware). The car's dynamic environment reflections work since user clip planes were added (see below). `OFF` still builds and runs the xenos plugin. |
 | 5. Hardening and performance | **In progress.** Perf counters, display-locked frame pacing, the pipeline precache and the Windows Vulkan build (`rr6_vk.exe`) are done (see Phase 5 below). Linux and macOS are open. |
-| 6. User-facing polish | **Done** (2026-10-25), the same items as pgr4's Phase 7 apart from its camera hook. Bring-up detail is at the debug log level, so a race at the defaults logs nothing past the start-up summary. F4 opens a short settings menu, and `rr6_resolution_scale` now defaults to 1x. See Phase 6 below. |
+| 6. User-facing polish | **Done** (2026-10-25), the same items as pgr4's Phase 7 apart from its camera hook. Bring-up detail is at the debug log level, so a race at the defaults logs nothing past the start-up summary. F1 opens a short settings menu with a Quit game button (first built on F4), and `rr6_resolution_scale` now defaults to 1x. See Phase 6 below. |
 
 ### Phase 4, milestone 1 (what exists)
 
@@ -322,7 +322,7 @@ pgr4's Phase 7 (`D:\rexglue_projects\pgr4\docs\native-renderer-plan.md`), withou
      - A run at the defaults that idles for 200 s logs 9 lines.
      - A scripted run into a race (frame dumps 6000 and 10000 are mid-race) logs 15. Past the adapter, scale and precache lines, they are all the script's and the dumps' own markers.
      - With `--log_level=debug` the demoted lines are back.
-2. **A short F4 settings menu:** `gpu/settings_overlay.{h,cpp}`, installed from `Rr6App::OnCreateDialogs` in the native build. The xenos build keeps the SDK dialog.
+2. **A short settings menu (F1; first built on F4):** `gpu/settings_overlay.{h,cpp}`, installed from `Rr6App::OnCreateDialogs` in the native build. The xenos build keeps the SDK dialog.
    - **The bind:** a bind's name can't be registered twice (its key cvar is registered once). So the menu has its own bind, `bind_rr6_settings`, on the SDK bind's key. The SDK's `bind_settings` is unregistered and its key emptied, so the keybinds page shows no conflict.
    - **What it lists**, in plain words, with each cvar's description and name on hover:
      - *Display:* fullscreen and `rr6_vsync`;
@@ -337,6 +337,9 @@ pgr4's Phase 7 (`D:\rexglue_projects\pgr4\docs\native-renderer-plan.md`), withou
    - **Restart-only options:** `rr6_resolution_scale`, `rr6_supersampling` and `rr6_output_16bit` are now declared `kRequiresRestart`, so both menus mark them "(restart)". So are `rr6_geometry_gpu_upload` and `rr6_dred`, which only the full dialog lists. The rest are read per frame, per sampler or per call, so they apply live.
    - **Resolution scale default:** now 1x (native 1280x720) rather than following the window height. `0` still picks it from the window.
    - **Checked:** the menu appears on screen. Each live control and the Vulkan exe are not yet checked one by one.
+   - **Moved to F1, with Quit** (2026-10-27), as in pgr4. `bind_rr6_settings` now defaults to F1 instead of taking over the SDK bind's F4. F1 is free: the SDK registers only F3 (debug overlay), Backtick (console), F4 (settings) and F7 (achievements).
+   - **F4 is the SDK's again.** The "All settings..." button is gone: a second `SettingsDialog` from it would draw into the same `Settings##rex` window as the SDK's own. `bind_settings` is left untouched, and the menu's bottom row shows its key as a greyed hint ("F4: all settings"), read from the cvar each frame.
+   - **Quit game.** A right-aligned button opens a modal confirmation (Quit / Cancel, Escape cancels). The click lands inside the ImGui draw, nested in Present's synchronous call to the UI thread, so `Rr6App` posts `RequestShutdown(ShutdownReason::MenuQuit)` with `CallInUIThreadDeferred`, and the ordered exit runs from the next pump like a window close. Not yet checked on screen.
 
 ### Phase 3 findings
 

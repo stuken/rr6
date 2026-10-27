@@ -112,9 +112,16 @@ class Rr6App : public rex::ReXApp {
         });
   }
 
-  // F4 opens rr6's short settings menu in place of the SDK's full one.
+  // F1 opens rr6's short settings menu; F4 still opens the SDK's full one.
+  // Its Quit button is clicked inside the ImGui draw, nested in Present's
+  // call to the UI thread, so the shutdown is deferred to the next pump
+  // rather than run there.
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
-    rr6::gpu::SettingsOverlay::InstallBind(drawer, config_path_);
+    rr6::gpu::SettingsOverlay::InstallBind(drawer, config_path_, [this] {
+      app_context().CallInUIThreadDeferred([] {
+        rr6::RequestShutdown(rr6::ShutdownReason::MenuQuit);
+      });
+    });
   }
 
   void OnWindowPixelSizeChanged(u32, u32) override {

@@ -161,6 +161,7 @@ F1 opens a short settings menu with the display, resolution and image quality op
 | `rr6_anisotropy` | `default` | Anisotropic filtering. `default` leaves it as the game sets it, which is off apart from 2x or 4x on a few race textures; `2`, `4`, `8` or `16` forces that level. |
 | `rr6_fps_limit` | `60` | Presentation cap. `0` means no cap. |
 | `rr6_vsync` | `true` | Vertical sync. |
+| `rr6_frame_pacing` | `auto` | With vsync on and a refresh rate that is a multiple of the cap (120 Hz at 60 fps): `auto` checks whether the display has variable refresh (FreeSync, G-Sync, HDMI VRR) and paces on a timer if it does, or waits that many vblanks per frame if it doesn't. `display` and `timer` force either. |
 | `rr6_pso_precache` | `true` | Compile the recorded pipelines in the background at boot. |
 | `rr6_display_correction` | `true` | Apply the console's HDTV output curve at present, as its D3D programs it. Mid-tones and shadows come out darker than the raw frame, as on the console and the xenos plugin. `false` shows the raw frame. |
 | `rr6_output_16bit` | `true` | Keep the game's back buffer at 16 bits per channel and dither to 8 bits at present, which smooths gradients at high resolution scales. `false` uses the console's 8 bits. Takes effect after a restart. |
